@@ -1,0 +1,494 @@
+{
+  "meta": {
+    "name": "blade-agent",
+    "repo": "https://github.com/ViskaWei/blade-agent",
+    "oneLiner": "Multi-role autonomous agent that orchestrates scientific research, software engineering, and paper analysis through iterative goal-driven execution with quality gates.",
+    "version": "1.0.0",
+    "generatedAt": "2026-02-22T20:00:00Z",
+    "generatedBy": "repo-explorer v1.0",
+    "mainBranch": "main",
+    "language": "Bash + Python",
+    "entryPoint": "blade-agent.sh"
+  },
+  "modules": [
+    {
+      "id": "goal-parser",
+      "label": "Parse Goal",
+      "purpose": "Parse goal.md directives to extract ROLE, TOPIC, CHECK commands, and configuration for the current run.",
+      "type": "core",
+      "shape": "data",
+      "files": ["lib/lane_selector.sh", "runtime/goal.md"],
+      "publicAPI": ["parse_role()", "parse_topic()", "parse_checks()", "parse_hypotheses()", "parse_depth()"],
+      "dependencies": [],
+      "spineOrder": 1,
+      "spineIO": "goal.md \u2192 ROLE + TOPIC + CHECK",
+      "detail": {
+        "what": "Reads a goal.md file and extracts structured directives (ROLE, TOPIC, CHECK, STAGES, HYPOTHESIS, ARXIV, etc.) that configure the entire execution pipeline.",
+        "inputs": [
+          {"name": "goal.md", "type": "Markdown", "description": "User-written goal file with directives"}
+        ],
+        "outputs": [
+          {"name": "ROLE", "type": "string", "description": "scientist | engineer | student"},
+          {"name": "TOPIC", "type": "string", "description": "Research topic or task name"},
+          {"name": "CHECK[]", "type": "string[]", "description": "Shell commands that must pass for success"}
+        ],
+        "entryFile": "lib/lane_selector.sh",
+        "entryFunction": "parse_role",
+        "runCmd": "source lib/lane_selector.sh && parse_role runtime/goal.md",
+        "failureModes": [
+          {"condition": "Missing ROLE directive", "handling": "Defaults to 'engineer'"},
+          {"condition": "Malformed goal.md", "handling": "Exits with error message"}
+        ]
+      }
+    },
+    {
+      "id": "role-dispatch",
+      "label": "Dispatch Role",
+      "purpose": "Load the appropriate role script (scientist/engineer/student) and initialize role-specific configuration.",
+      "type": "core",
+      "shape": "process",
+      "files": ["blade-agent.sh", "roles/engineer.sh", "roles/scientist.sh", "roles/student.sh"],
+      "publicAPI": ["run_role()"],
+      "dependencies": ["goal-parser"],
+      "spineOrder": 2,
+      "spineIO": "ROLE \u2192 role script loaded",
+      "detail": {
+        "what": "Sources the role-specific shell script (roles/{ROLE}.sh) which defines the run_role() function, then initializes state and report tracking.",
+        "inputs": [
+          {"name": "ROLE", "type": "string", "description": "Role name from goal parser"},
+          {"name": "roles/*.sh", "type": "Bash", "description": "Role implementation scripts"}
+        ],
+        "outputs": [
+          {"name": "run_role()", "type": "function", "description": "Loaded role execution function"},
+          {"name": "state.json", "type": "JSON", "description": "Initialized state file"}
+        ],
+        "entryFile": "blade-agent.sh",
+        "entryFunction": "main",
+        "entryLine": 80,
+        "runCmd": "bash blade-agent.sh runtime/goal.md",
+        "configKeys": [
+          {"key": "EXEC_BACKEND", "description": "Execution engine: 'claude' or 'aider'", "required": false, "default": "claude"},
+          {"key": "MAX_ITERATIONS", "description": "Circuit breaker for Big Loop", "required": false, "default": "5"}
+        ]
+      }
+    },
+    {
+      "id": "task-execution",
+      "label": "Execute Tasks",
+      "purpose": "Run role-specific tasks using LLM-powered execution engines (Aider or Claude Code CLI).",
+      "type": "core",
+      "shape": "ai",
+      "files": ["lib/aider.sh", "lib/claude_coder.sh", "lib/context_builder.sh"],
+      "publicAPI": ["aider_execute_plan()", "claude_execute_plan()", "run_role()"],
+      "dependencies": ["role-dispatch", "prompt-system", "state-engine"],
+      "spineOrder": 3,
+      "spineIO": "prompt + context \u2192 code changes",
+      "detail": {
+        "what": "Executes the role's core work: for Engineer, runs fix_plan.md tasks via Aider/Claude; for Scientist, runs experiment lanes; for Student, runs paper analysis passes.",
+        "inputs": [
+          {"name": "fix_plan.md", "type": "Markdown", "description": "Task list with checkboxes (Engineer)"},
+          {"name": "PROMPT.md", "type": "Markdown", "description": "Assembled prompt context"},
+          {"name": "goal.md", "type": "Markdown", "description": "Goal directives"}
+        ],
+        "outputs": [
+          {"name": "Git commits", "type": "Git", "description": "Code changes committed"},
+          {"name": "Experiment results", "type": "Various", "description": "Data files, reports, artifacts"}
+        ],
+        "entryFile": "lib/aider.sh",
+        "entryFunction": "aider_execute_plan",
+        "runCmd": "source lib/aider.sh && aider_execute_plan .ralph/fix_plan.md",
+        "configKeys": [
+          {"key": "EXEC_BACKEND", "description": "Engine selection", "required": false, "default": "claude"},
+          {"key": "AIDER_MODEL", "description": "Model for Aider backend", "required": false, "default": "claude-sonnet-4-5-20250929"},
+          {"key": "CLAUDE_CODER_MODEL", "description": "Model for Claude Code backend", "required": false, "default": "sonnet"}
+        ],
+        "failureModes": [
+          {"condition": "API rate limit", "handling": "Exponential backoff retry"},
+          {"condition": "Task execution error", "handling": "Mark task failed, continue to next"},
+          {"condition": "All tasks fail", "handling": "Trigger companion intervention"}
+        ]
+      }
+    },
+    {
+      "id": "verification",
+      "label": "Verify Results",
+      "purpose": "Execute CHECK commands from goal.md and role-specific quality gates to determine success or failure.",
+      "type": "core",
+      "shape": "process",
+      "files": ["verify/goal_check.sh", "verify/engineer_ok.sh", "verify/scientist_ok.sh", "verify/student_ok.sh"],
+      "publicAPI": ["goal_check.sh"],
+      "dependencies": ["task-execution"],
+      "spineOrder": 4,
+      "spineIO": "CHECK commands \u2192 pass / fail",
+      "detail": {
+        "what": "Parses CHECK: lines from goal.md and executes each as a shell command. All must exit 0 for success. Role-specific verification scripts check additional artifacts.",
+        "inputs": [
+          {"name": "goal.md", "type": "Markdown", "description": "Contains CHECK: directives"},
+          {"name": "Work artifacts", "type": "Various", "description": "Files/results produced by execution"}
+        ],
+        "outputs": [
+          {"name": "Exit code", "type": "integer", "description": "0 = all checks pass, 1 = failure"},
+          {"name": "diagnostic_feedback.md", "type": "Markdown", "description": "Captured error output for next iteration"}
+        ],
+        "entryFile": "verify/goal_check.sh",
+        "runCmd": "bash verify/goal_check.sh runtime/goal.md",
+        "failureModes": [
+          {"condition": "CHECK command not found", "handling": "Treated as failure, logged"},
+          {"condition": "CHECK times out", "handling": "Killed after timeout, marked fail"}
+        ]
+      }
+    },
+    {
+      "id": "companion-ai",
+      "label": "Diagnose Stuck",
+      "purpose": "Detect when the agent is stuck in repeated failures and autonomously intervene with a fix strategy.",
+      "type": "core",
+      "shape": "ai",
+      "files": ["lib/companion.sh", "prompts/companion/diagnose.md"],
+      "publicAPI": ["companion_check()", "companion_is_stuck()", "companion_intervene()"],
+      "dependencies": ["verification", "state-engine"],
+      "spineOrder": 5,
+      "spineIO": "failure pattern \u2192 fix strategy",
+      "detail": {
+        "what": "Monitors iteration history for patterns indicating the agent is stuck (repeated errors, phase stalling). Uses Opus model to diagnose root cause and generate a fix strategy.",
+        "inputs": [
+          {"name": "state.json", "type": "JSON", "description": "Current iteration and phase state"},
+          {"name": "diagnostic_feedback.md", "type": "Markdown", "description": "Error output from verification"},
+          {"name": "events.jsonl", "type": "JSONL", "description": "Structured event log history"}
+        ],
+        "outputs": [
+          {"name": "Fix strategy", "type": "Markdown", "description": "Companion diagnosis and recommended actions"},
+          {"name": "Modified goal/plan", "type": "Various", "description": "Updated execution context"}
+        ],
+        "entryFile": "lib/companion.sh",
+        "entryFunction": "companion_check",
+        "configKeys": [
+          {"key": "COMPANION_ENABLED", "description": "Enable companion intervention", "required": false, "default": "false"},
+          {"key": "COMPANION_MODEL", "description": "Model for companion (typically opus)", "required": false, "default": "opus"}
+        ]
+      }
+    },
+    {
+      "id": "report-output",
+      "label": "Generate Report",
+      "purpose": "Write structured execution reports and extract reusable skills from successful runs.",
+      "type": "core",
+      "shape": "document",
+      "files": ["lib/report.sh", "lib/retrospective.sh", "lib/skill_registry.sh", "lib/run_archive.sh"],
+      "publicAPI": ["report_init()", "report_finish()", "retrospective_run()", "skill_register()"],
+      "dependencies": ["verification"],
+      "spineOrder": 6,
+      "spineIO": "run results \u2192 report.json + skills",
+      "detail": {
+        "what": "Generates a SWE-bench style execution report (phases, tasks, timing, exit code) and runs a retrospective to extract reusable patterns into the skill registry.",
+        "inputs": [
+          {"name": "Execution state", "type": "Various", "description": "All state, events, and artifacts from the run"},
+          {"name": "state.json", "type": "JSON", "description": "Final iteration state"}
+        ],
+        "outputs": [
+          {"name": "report.json", "type": "JSON", "description": "Structured execution report"},
+          {"name": "skills/*.md", "type": "Markdown", "description": "Extracted reusable skill files"},
+          {"name": "Archive", "type": "Directory", "description": "Timestamped run archive"}
+        ],
+        "entryFile": "lib/report.sh",
+        "entryFunction": "report_finish",
+        "configKeys": [
+          {"key": "RETROSPECTIVE_ENABLED", "description": "Run post-execution retrospective", "required": false, "default": "true"}
+        ]
+      }
+    },
+    {
+      "id": "state-engine",
+      "label": "Manage State",
+      "purpose": "Persist iteration state, stage transitions, and lane tracking in JSON format with checkpoint support.",
+      "type": "support",
+      "shape": "database",
+      "files": ["lib/state.sh", "lib/checkpoint.sh"],
+      "publicAPI": ["state_init()", "state_read()", "state_update()", "state_stage_advance()", "checkpoint_create()"],
+      "dependencies": [],
+      "detail": {
+        "what": "Provides JSON-based state persistence for tracking iterations, phases, stages, and parallel lane status. Creates git checkpoints for rollback support.",
+        "inputs": [
+          {"name": "State updates", "type": "key-value", "description": "Status, iteration, phase changes"}
+        ],
+        "outputs": [
+          {"name": "state.json", "type": "JSON", "description": "Persistent state file"},
+          {"name": "history/state_iter*.json", "type": "JSON", "description": "Per-iteration snapshots"},
+          {"name": "Git checkpoint", "type": "Git commit", "description": "Backup before each iteration"}
+        ],
+        "entryFile": "lib/state.sh",
+        "entryFunction": "state_init",
+        "runCmd": "source lib/state.sh && state_init runtime/state.json"
+      }
+    },
+    {
+      "id": "prompt-system",
+      "label": "Build Prompts",
+      "purpose": "Assemble focused LLM prompts from templates, goal context, feedback, and skill knowledge.",
+      "type": "support",
+      "shape": "process",
+      "files": ["lib/context_builder.sh", "prompts/engineer/plan.md", "prompts/scientist/hub.md", "prompts/student/research.md"],
+      "publicAPI": ["build_context()"],
+      "dependencies": ["goal-parser"],
+      "detail": {
+        "what": "Builds role-and-step-specific prompts by combining prompt templates with goal context, previous feedback, project structure, and relevant skills. Keeps context under 10k tokens.",
+        "inputs": [
+          {"name": "Prompt template", "type": "Markdown", "description": "Role-specific template from prompts/"},
+          {"name": "goal.md", "type": "Markdown", "description": "Current goal and directives"},
+          {"name": "feedback.md", "type": "Markdown", "description": "Previous iteration feedback (if any)"}
+        ],
+        "outputs": [
+          {"name": "PROMPT.md", "type": "Markdown", "description": "Assembled prompt ready for LLM"}
+        ],
+        "entryFile": "lib/context_builder.sh",
+        "runCmd": "bash lib/context_builder.sh scientist hub"
+      }
+    },
+    {
+      "id": "paper-pipeline",
+      "label": "Analyze Papers",
+      "purpose": "Multi-pass paper analysis pipeline: fetch PDF, parse sections, run 3 LLM passes with quality gates.",
+      "type": "core",
+      "shape": "ai",
+      "files": ["lib/paper_direct.sh", "lib/paper_fetch.sh", "lib/paper_gates.sh"],
+      "publicAPI": ["paper_fetch()", "paper_gate_q1()", "paper_gate_q2()", "paper_gate_q3()"],
+      "dependencies": ["goal-parser", "prompt-system"],
+      "detail": {
+        "what": "Deterministic + LLM hybrid pipeline for deep paper analysis. Fetches PDF from arXiv, parses to markdown, then runs 3 LLM passes (Map, Mechanics, Mastery) each with quality gates and rework loops.",
+        "inputs": [
+          {"name": "ARXIV URL or PDF", "type": "URL/File", "description": "Paper to analyze"},
+          {"name": "DEPTH", "type": "string", "description": "Analysis depth: L0 (onepager), L1 (deck), L2 (action_pack)"}
+        ],
+        "outputs": [
+          {"name": "map.md", "type": "Markdown", "description": "Paper structure map with 4-grid analysis"},
+          {"name": "mechanics/", "type": "Directory", "description": "Claim-evidence cards and method cards"},
+          {"name": "mastery/", "type": "Directory", "description": "Teachback, quiz, reproducibility guide"},
+          {"name": "onepager/deck", "type": "Markdown", "description": "Final packaged output"}
+        ],
+        "entryFile": "lib/paper_direct.sh",
+        "runCmd": "bash lib/paper_direct.sh --goal runtime/goal.md",
+        "failureModes": [
+          {"condition": "Gate Q1/Q2/Q3 failure", "handling": "Rework loop (max 2 retries per gate)"},
+          {"condition": "PDF fetch fails", "handling": "Exit with error, suggest manual download"},
+          {"condition": "Max reworks exceeded", "handling": "Exit 1, save partial results"}
+        ]
+      }
+    },
+    {
+      "id": "parallel-experiment",
+      "label": "Run Experiments",
+      "purpose": "Execute parallel hypothesis lanes with batching, timeout control, and result merging for scientist mode.",
+      "type": "core",
+      "shape": "process",
+      "files": ["lib/parallel.sh", "lib/merge.sh", "lib/refinement.sh", "stages/scientist_exp.sh"],
+      "publicAPI": ["parallel_wait_all()", "parallel_collect_outputs()", "merge_lane_results()", "run_refinement_cycle()"],
+      "dependencies": ["state-engine", "prompt-system"],
+      "detail": {
+        "what": "Spawns parallel background processes for each hypothesis. Each lane gets its own Ralph prompt and Python execution. Results are collected and merged after all lanes complete or timeout.",
+        "inputs": [
+          {"name": "HYPOTHESIS_N directives", "type": "string[]", "description": "Hypotheses from goal.md"},
+          {"name": "hub.md", "type": "Markdown", "description": "Hypothesis tree with decision matrix"}
+        ],
+        "outputs": [
+          {"name": "exp_*.md", "type": "Markdown", "description": "Per-lane experiment reports"},
+          {"name": "merged_results.md", "type": "Markdown", "description": "Combined results across lanes"}
+        ],
+        "entryFile": "stages/scientist_exp.sh",
+        "entryFunction": "run_stage_experiment",
+        "configKeys": [
+          {"key": "MAX_PARALLEL_LANES", "description": "Max concurrent hypothesis lanes", "required": false, "default": "3"},
+          {"key": "LANE_TIMEOUT", "description": "Seconds per lane before timeout", "required": false, "default": "900"},
+          {"key": "SCIENTIST_MAX_BATCHES", "description": "Max batches of hypotheses", "required": false, "default": "5"}
+        ]
+      }
+    },
+    {
+      "id": "safety-guard",
+      "label": "Guard Execution",
+      "purpose": "Provide git branch isolation, diff validation, and structured event logging for safe rollback.",
+      "type": "infra",
+      "shape": "process",
+      "files": ["lib/guard.sh", "lib/event_logger.sh"],
+      "publicAPI": ["guard_create_branch()", "guard_validate_diff()", "event_log()"],
+      "dependencies": [],
+      "detail": {
+        "what": "Creates isolated git branches per iteration, validates diffs for safety (no binary files, no large deletions, no permission changes), and logs all events as structured JSONL.",
+        "inputs": [
+          {"name": "Iteration number", "type": "integer", "description": "Current iteration for branch naming"},
+          {"name": "Work directory", "type": "path", "description": "Project being modified"}
+        ],
+        "outputs": [
+          {"name": "Git branch", "type": "Git ref", "description": "Isolated branch: blade-agent/iter-N"},
+          {"name": "events.jsonl", "type": "JSONL", "description": "Structured event log"}
+        ],
+        "entryFile": "lib/guard.sh",
+        "entryFunction": "guard_create_branch"
+      }
+    }
+  ],
+  "pipelines": [
+    {
+      "id": "engineer",
+      "label": "Engineer Pipeline",
+      "description": "Plan-driven code execution: Ralph reads codebase and generates a fix_plan.md, then Aider/Claude executes each task, followed by CHECK-based verification.",
+      "trigger": "ROLE: engineer in goal.md",
+      "steps": [
+        {"id": "eng-goal", "label": "Parse Goal", "shape": "artifact", "exec": "deterministic", "module": "goal-parser", "entryFile": "lib/lane_selector.sh", "entryFunction": "parse_role", "inputs": ["goal.md"], "outputs": ["ROLE", "TOPIC", "CHECK[]"]},
+        {"id": "eng-plan", "label": "Generate Plan", "subtitle": "Ralph LLM", "shape": "process", "exec": "llm", "module": "task-execution", "entryFile": "lib/context_builder.sh", "inputs": ["goal.md", "codebase"], "outputs": ["fix_plan.md"]},
+        {"id": "eng-parse-tasks", "label": "Parse Tasks", "shape": "process", "exec": "deterministic", "module": "task-execution", "entryFile": "lib/aider.sh", "entryFunction": "_parse_unchecked_tasks", "inputs": ["fix_plan.md"], "outputs": ["task_list[]"]},
+        {"id": "eng-execute", "label": "Execute Tasks", "subtitle": "Aider/Claude", "shape": "process", "exec": "llm", "module": "task-execution", "entryFile": "lib/aider.sh", "entryFunction": "aider_execute_plan", "inputs": ["task_list[]", "codebase"], "outputs": ["Git commits", "edited files"]},
+        {"id": "eng-validate", "label": "Validate Edits", "shape": "process", "exec": "deterministic", "module": "task-execution", "entryFile": "lib/aider.sh", "entryFunction": "_validate_edited_files", "inputs": ["edited files"], "outputs": ["validation_result"]},
+        {"id": "eng-diagnose", "label": "Run Diagnostics", "shape": "process", "exec": "deterministic", "module": "verification", "entryFile": "verify/goal_check.sh", "inputs": ["CHECK[]"], "outputs": ["diagnostic_feedback.md"]},
+        {"id": "eng-gate", "label": "All Checks Pass?", "shape": "decision", "exec": "deterministic", "module": "verification", "entryFile": "verify/goal_check.sh", "inputs": ["CHECK[] results"], "outputs": ["pass/fail"]},
+        {"id": "eng-report", "label": "Write Report", "shape": "artifact", "exec": "deterministic", "module": "report-output", "entryFile": "lib/report.sh", "entryFunction": "report_finish", "inputs": ["execution state"], "outputs": ["report.json"]},
+        {"id": "eng-retry", "label": "Inject Feedback", "shape": "process", "exec": "deterministic", "module": "role-dispatch", "entryFile": "blade-agent.sh", "inputs": ["diagnostic_feedback.md"], "outputs": ["updated context"]}
+      ],
+      "edges": [
+        {"source": "eng-goal", "target": "eng-plan", "type": "calls", "label": "ROLE + TOPIC"},
+        {"source": "eng-plan", "target": "eng-parse-tasks", "type": "writes", "label": "fix_plan.md"},
+        {"source": "eng-parse-tasks", "target": "eng-execute", "type": "calls", "label": "task_list[]"},
+        {"source": "eng-execute", "target": "eng-validate", "type": "writes", "label": "edited files"},
+        {"source": "eng-validate", "target": "eng-diagnose", "type": "calls", "label": "validated files"},
+        {"source": "eng-diagnose", "target": "eng-gate", "type": "calls", "label": "CHECK results"},
+        {"source": "eng-gate", "target": "eng-report", "type": "calls", "label": "pass"},
+        {"source": "eng-gate", "target": "eng-retry", "type": "calls", "label": "fail"},
+        {"source": "eng-retry", "target": "eng-plan", "type": "calls", "label": "next iteration"}
+      ],
+      "inputArtifacts": ["goal.md", "codebase"],
+      "outputArtifacts": ["report.json", "Git commits", "fix_plan.md"]
+    },
+    {
+      "id": "scientist",
+      "label": "Scientist Pipeline",
+      "description": "Hypothesis-driven research: initialize session/hub/roadmap, run parallel experiment lanes, then synthesize paper/slides.",
+      "trigger": "ROLE: scientist in goal.md",
+      "steps": [
+        {"id": "sci-session", "label": "Create Session", "subtitle": "Ralph LLM", "shape": "process", "exec": "llm", "module": "prompt-system", "entryFile": "stages/scientist_init.sh", "inputs": ["goal.md"], "outputs": ["session.md"]},
+        {"id": "sci-hub", "label": "Build Hub", "subtitle": "Ralph LLM", "shape": "process", "exec": "llm", "module": "prompt-system", "entryFile": "stages/scientist_init.sh", "inputs": ["session.md"], "outputs": ["hub.md"]},
+        {"id": "sci-roadmap", "label": "Plan Roadmap", "subtitle": "Ralph LLM", "shape": "process", "exec": "llm", "module": "prompt-system", "entryFile": "stages/scientist_init.sh", "inputs": ["hub.md"], "outputs": ["roadmap.md"]},
+        {"id": "sci-spawn", "label": "Spawn Lanes", "shape": "process", "exec": "deterministic", "module": "parallel-experiment", "entryFile": "stages/scientist_exp.sh", "inputs": ["HYPOTHESIS_N[]", "roadmap.md"], "outputs": ["lane_dirs/"]},
+        {"id": "sci-run-lanes", "label": "Execute Lanes", "subtitle": "Parallel", "shape": "process", "exec": "llm", "module": "parallel-experiment", "entryFile": "stages/scientist_exp.sh", "inputs": ["lane_dirs/"], "outputs": ["exp_*.md"]},
+        {"id": "sci-merge", "label": "Merge Results", "shape": "process", "exec": "deterministic", "module": "parallel-experiment", "entryFile": "lib/merge.sh", "inputs": ["exp_*.md"], "outputs": ["merged_results.md"]},
+        {"id": "sci-gate", "label": "Hypotheses Valid?", "shape": "decision", "exec": "llm", "module": "verification", "entryFile": "verify/scientist_ok.sh", "inputs": ["merged_results.md", "hub.md"], "outputs": ["pass/refine"]},
+        {"id": "sci-refine", "label": "Refine Hub", "shape": "process", "exec": "llm", "module": "parallel-experiment", "entryFile": "lib/refinement.sh", "entryFunction": "refine_hub", "inputs": ["failure pattern"], "outputs": ["updated hub.md"]},
+        {"id": "sci-paper", "label": "Write Paper", "subtitle": "Ralph LLM", "shape": "process", "exec": "llm", "module": "report-output", "entryFile": "stages/scientist_synth.sh", "inputs": ["merged_results.md"], "outputs": ["paper.md"]},
+        {"id": "sci-viz", "label": "Create Figures", "shape": "process", "exec": "llm", "module": "report-output", "entryFile": "stages/scientist_synth.sh", "inputs": ["merged_results.md"], "outputs": ["figures/"]},
+        {"id": "sci-slides", "label": "Build Slides", "subtitle": "Ralph LLM", "shape": "artifact", "exec": "llm", "module": "report-output", "entryFile": "stages/scientist_synth.sh", "inputs": ["paper.md", "figures/"], "outputs": ["slides.md"]}
+      ],
+      "edges": [
+        {"source": "sci-session", "target": "sci-hub", "type": "writes", "label": "session.md"},
+        {"source": "sci-hub", "target": "sci-roadmap", "type": "writes", "label": "hub.md"},
+        {"source": "sci-roadmap", "target": "sci-spawn", "type": "calls", "label": "roadmap.md"},
+        {"source": "sci-spawn", "target": "sci-run-lanes", "type": "calls", "label": "lane_dirs/"},
+        {"source": "sci-run-lanes", "target": "sci-merge", "type": "writes", "label": "exp_*.md"},
+        {"source": "sci-merge", "target": "sci-gate", "type": "calls", "label": "merged_results.md"},
+        {"source": "sci-gate", "target": "sci-paper", "type": "calls", "label": "pass"},
+        {"source": "sci-gate", "target": "sci-refine", "type": "calls", "label": "refine"},
+        {"source": "sci-refine", "target": "sci-spawn", "type": "calls", "label": "updated hypotheses"},
+        {"source": "sci-paper", "target": "sci-viz", "type": "calls", "label": "paper.md"},
+        {"source": "sci-viz", "target": "sci-slides", "type": "writes", "label": "figures/"}
+      ],
+      "inputArtifacts": ["goal.md", "HYPOTHESIS_N directives"],
+      "outputArtifacts": ["paper.md", "slides.md", "figures/", "merged_results.md"]
+    },
+    {
+      "id": "student-paper",
+      "label": "Student Paper Pipeline",
+      "description": "Multi-pass academic paper analysis: fetch PDF, parse to markdown, then 3 LLM passes (Map, Mechanics, Mastery) each with quality gates and rework loops.",
+      "trigger": "ROLE: student, MODE: paper in goal.md",
+      "steps": [
+        {"id": "sp-fetch", "label": "Fetch PDF", "subtitle": "curl + arXiv API", "shape": "process", "exec": "deterministic", "module": "paper-pipeline", "entryFile": "lib/paper_fetch.sh", "entryFunction": "paper_fetch", "inputs": ["ARXIV URL"], "outputs": ["paper.pdf", "metadata.json"]},
+        {"id": "sp-parse", "label": "Parse PDF", "subtitle": "markitdown", "shape": "process", "exec": "deterministic", "module": "paper-pipeline", "entryFile": "lib/paper_direct.sh", "inputs": ["paper.pdf"], "outputs": ["full_text.md"]},
+        {"id": "sp-index", "label": "Index Sections", "shape": "process", "exec": "deterministic", "module": "paper-pipeline", "entryFile": "lib/paper_direct.sh", "inputs": ["full_text.md"], "outputs": ["sections/", "figures/"]},
+        {"id": "sp-triage", "label": "Triage Paper", "subtitle": "LLM Pass 1a", "shape": "process", "exec": "llm", "module": "paper-pipeline", "entryFile": "lib/paper_direct.sh", "inputs": ["full_text.md"], "outputs": ["triage.json"]},
+        {"id": "sp-map", "label": "Build Map", "subtitle": "LLM Pass 1b", "shape": "process", "exec": "llm", "module": "paper-pipeline", "entryFile": "lib/paper_direct.sh", "inputs": ["full_text.md", "triage.json"], "outputs": ["map.md", "glossary_seed.md"]},
+        {"id": "sp-q1", "label": "Gate Q1: Map OK?", "shape": "decision", "exec": "deterministic", "module": "paper-pipeline", "entryFile": "lib/paper_gates.sh", "entryFunction": "paper_gate_q1", "inputs": ["map.md", "glossary_seed.md"], "outputs": ["pass/rework"]},
+        {"id": "sp-mechanics", "label": "Analyze Mechanics", "subtitle": "LLM Pass 2", "shape": "process", "exec": "llm", "module": "paper-pipeline", "entryFile": "lib/paper_direct.sh", "inputs": ["map.md", "full_text.md"], "outputs": ["mechanics/"]},
+        {"id": "sp-q2", "label": "Gate Q2: Claims OK?", "shape": "decision", "exec": "deterministic", "module": "paper-pipeline", "entryFile": "lib/paper_gates.sh", "entryFunction": "paper_gate_q2", "inputs": ["mechanics/"], "outputs": ["pass/rework"]},
+        {"id": "sp-mastery", "label": "Build Mastery", "subtitle": "LLM Pass 3", "shape": "process", "exec": "llm", "module": "paper-pipeline", "entryFile": "lib/paper_direct.sh", "inputs": ["mechanics/", "map.md"], "outputs": ["mastery/"]},
+        {"id": "sp-q3", "label": "Gate Q3: Deep OK?", "shape": "decision", "exec": "deterministic", "module": "paper-pipeline", "entryFile": "lib/paper_gates.sh", "entryFunction": "paper_gate_q3", "inputs": ["mastery/"], "outputs": ["pass/rework"]},
+        {"id": "sp-package", "label": "Package Output", "subtitle": "LLM Final", "shape": "artifact", "exec": "llm", "module": "paper-pipeline", "entryFile": "lib/paper_direct.sh", "inputs": ["map.md", "mechanics/", "mastery/"], "outputs": ["onepager/deck/action_pack"]}
+      ],
+      "edges": [
+        {"source": "sp-fetch", "target": "sp-parse", "type": "writes", "label": "paper.pdf"},
+        {"source": "sp-parse", "target": "sp-index", "type": "writes", "label": "full_text.md"},
+        {"source": "sp-index", "target": "sp-triage", "type": "reads", "label": "sections/"},
+        {"source": "sp-triage", "target": "sp-map", "type": "writes", "label": "triage.json"},
+        {"source": "sp-map", "target": "sp-q1", "type": "calls", "label": "map.md"},
+        {"source": "sp-q1", "target": "sp-mechanics", "type": "calls", "label": "pass"},
+        {"source": "sp-q1", "target": "sp-map", "type": "calls", "label": "rework (max 2)"},
+        {"source": "sp-mechanics", "target": "sp-q2", "type": "calls", "label": "mechanics/"},
+        {"source": "sp-q2", "target": "sp-mastery", "type": "calls", "label": "pass"},
+        {"source": "sp-q2", "target": "sp-mechanics", "type": "calls", "label": "rework (max 2)"},
+        {"source": "sp-mastery", "target": "sp-q3", "type": "calls", "label": "mastery/"},
+        {"source": "sp-q3", "target": "sp-package", "type": "calls", "label": "pass"},
+        {"source": "sp-q3", "target": "sp-mastery", "type": "calls", "label": "rework (max 2)"}
+      ],
+      "inputArtifacts": ["ARXIV URL or PDF path", "DEPTH directive"],
+      "outputArtifacts": ["map.md", "mechanics/", "mastery/", "onepager or deck"]
+    }
+  ],
+  "glossary": [
+    {"term": "Big Loop", "definition": "The main iteration loop in blade-agent.sh that runs role execution, verification, and companion checks until success or max iterations.", "relatedNodes": ["role-dispatch", "verification"]},
+    {"term": "CHECK directive", "definition": "A shell command in goal.md (prefixed with CHECK:) that must exit 0 for the run to be considered successful.", "relatedNodes": ["goal-parser", "verification"]},
+    {"term": "Companion", "definition": "An Opus-powered AI agent that monitors for stuck patterns and autonomously generates fix strategies when the main agent fails repeatedly.", "relatedNodes": ["companion-ai"]},
+    {"term": "Fix Plan", "definition": "A markdown file (.ralph/fix_plan.md) containing checkbox-formatted tasks generated by Ralph for the Engineer role to execute.", "relatedNodes": ["task-execution"]},
+    {"term": "Gate (Quality)", "definition": "A verification checkpoint in a pipeline (Q1, Q2, Q3) that validates output quality before allowing the next pass. Supports rework loops.", "relatedNodes": ["verification", "paper-pipeline"]},
+    {"term": "Hub", "definition": "A hypothesis tree document ({TOPIC}_hub.md) with a decision matrix that guides experiment prioritization in the Scientist role.", "relatedNodes": ["parallel-experiment"]},
+    {"term": "Lane", "definition": "A parallel execution unit in the Scientist role. Each lane tests one hypothesis independently with its own Ralph prompt and Python process.", "relatedNodes": ["parallel-experiment"]},
+    {"term": "Ralph", "definition": "The internal name for the LLM execution engine that processes prompts. Can be backed by Aider or Claude Code CLI.", "relatedNodes": ["task-execution", "prompt-system"]},
+    {"term": "Retrospective", "definition": "A post-run analysis phase that extracts reusable patterns from successful runs and registers them as skills.", "relatedNodes": ["report-output"]},
+    {"term": "Roadmap", "definition": "A prioritized experiment plan ({TOPIC}_roadmap.md) with MVP focus, generated from the Hub in the Scientist init stage.", "relatedNodes": ["parallel-experiment"]},
+    {"term": "Role", "definition": "One of three execution modes: scientist (hypothesis-driven research), engineer (plan-driven coding), or student (paper analysis / learning).", "relatedNodes": ["role-dispatch", "goal-parser"]},
+    {"term": "Rework Loop", "definition": "When a quality gate fails, the pipeline deletes failed outputs and retries the LLM step (max 2 retries per gate).", "relatedNodes": ["paper-pipeline"]},
+    {"term": "Session", "definition": "The initial context document ({TOPIC}_session.md) created at the start of a Scientist run, capturing experiment questions and context.", "relatedNodes": ["parallel-experiment"]},
+    {"term": "Spine", "definition": "The main sequential flow of nodes in the L0 overview, showing the primary execution path.", "relatedNodes": ["goal-parser", "role-dispatch", "task-execution", "verification", "companion-ai", "report-output"]},
+    {"term": "Stage", "definition": "A major phase in the Scientist role: init (setup), experiment (parallel lanes), synthesis (paper/slides).", "relatedNodes": ["parallel-experiment", "state-engine"]}
+  ],
+  "readerPaths": [
+    {
+      "id": "runner",
+      "label": "I want to run it",
+      "icon": "\ud83d\ude80",
+      "description": "Get blade-agent running on your project in 5 minutes",
+      "steps": [
+        {"page": "#overview", "action": "Read the one-liner to understand what blade-agent does"},
+        {"page": "#node/goal-parser", "action": "Learn how to write a goal.md file", "highlight": ["goal-parser"]},
+        {"page": "#node/role-dispatch", "action": "See the available roles and config options", "highlight": ["role-dispatch"]}
+      ]
+    },
+    {
+      "id": "architect",
+      "label": "I want to understand architecture",
+      "icon": "\ud83e\udded",
+      "description": "Understand how modules connect and data flows through the system",
+      "steps": [
+        {"page": "#overview", "action": "Scan the 6-node spine to get the main flow"},
+        {"page": "#modules", "action": "Explore the module topology and click nodes for detail"},
+        {"page": "#pipeline/engineer", "action": "Trace the Engineer pipeline end-to-end"}
+      ]
+    },
+    {
+      "id": "domain-expert",
+      "label": "I care about paper analysis",
+      "icon": "\ud83d\udcda",
+      "description": "Deep-dive into the multi-pass paper pipeline with quality gates",
+      "steps": [
+        {"page": "#overview", "action": "See where paper analysis fits in the overall flow"},
+        {"page": "#pipeline/student-paper", "action": "Trace the 3-pass pipeline: Map \u2192 Mechanics \u2192 Mastery"},
+        {"page": "#node/paper-pipeline", "action": "See entry points, config, and failure modes"}
+      ]
+    },
+    {
+      "id": "contributor",
+      "label": "I want to contribute",
+      "icon": "\ud83d\udd27",
+      "description": "Find code entry points, understand the module structure, add new roles",
+      "steps": [
+        {"page": "#modules", "action": "Understand module boundaries and dependencies"},
+        {"page": "#node/task-execution", "action": "See how execution engines work (add your own)"},
+        {"page": "#node/safety-guard", "action": "Understand safety constraints before making changes"}
+      ]
+    }
+  ]
+}

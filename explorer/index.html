@@ -1,0 +1,1819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>blade-agent — Repo Explorer</title>
+<style>
+/* ── Reset & Base ────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #1E293B;
+  background: linear-gradient(135deg, #F8FAFC 0%, #EEF2FF 40%, #F0FDFA 100%);
+  display: flex; flex-direction: column;
+}
+a { color: #2563EB; text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, .mono {
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 0.88em;
+  background: #F1F5F9; padding: 2px 6px; border-radius: 4px;
+}
+
+/* ── Glassmorphic tokens ─────────────────────────────── */
+.glass-card {
+  background: rgba(255,255,255,0.52);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  border: 1px solid rgba(255,255,255,0.6);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(140,120,200,0.06);
+}
+.reader-path-card {
+  background: rgba(255,255,255,0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.5);
+  border-radius: 12px;
+  padding: 20px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.reader-path-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(140,120,200,0.12);
+}
+
+/* ── Header ──────────────────────────────────────────── */
+#header {
+  height: 52px; min-height: 52px;
+  display: flex; align-items: center;
+  padding: 0 20px; gap: 16px;
+  background: rgba(255,255,255,0.78);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid #E2E8F0;
+  z-index: 100;
+}
+#header .project-name {
+  font-weight: 700; font-size: 16px; color: #0F172A;
+  white-space: nowrap;
+}
+#header .project-name span { color: #2563EB; }
+#breadcrumb { flex: 1; font-size: 13px; color: #64748B; display: flex; align-items: center; gap: 6px; }
+#breadcrumb a { color: #64748B; }
+#breadcrumb a:hover { color: #2563EB; }
+#breadcrumb .sep { color: #CBD5E1; }
+#legend-btn {
+  padding: 6px 14px; border-radius: 8px; border: 1px solid #E2E8F0;
+  background: #fff; font-size: 13px; cursor: pointer; color: #475569;
+  transition: background 0.15s;
+}
+#legend-btn:hover { background: #F1F5F9; }
+
+/* ── 3-Panel Layout ──────────────────────────────────── */
+#app {
+  flex: 1; display: flex; overflow: hidden;
+}
+#nav-panel {
+  width: 240px; min-width: 240px;
+  background: #FAFAFA;
+  border-right: 1px solid #E2E8F0;
+  overflow-y: auto; padding: 16px 0;
+}
+#canvas-panel {
+  flex: 1; overflow: auto; position: relative;
+}
+#inspector-panel {
+  width: 320px; min-width: 320px;
+  background: rgba(255,255,255,0.85);
+  backdrop-filter: blur(12px);
+  border-left: 1px solid #E2E8F0;
+  overflow-y: auto; padding: 20px;
+  display: none;
+}
+#inspector-panel.visible { display: block; }
+
+@media (max-width: 999px) {
+  #inspector-panel { display: none !important; }
+}
+
+/* ── Nav Items ───────────────────────────────────────── */
+.nav-section { padding: 0 12px; margin-bottom: 4px; }
+.nav-section-label {
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.08em; color: #94A3B8; padding: 8px 12px 4px;
+}
+.nav-item {
+  display: block; padding: 8px 12px; border-radius: 8px;
+  font-size: 13px; color: #475569; cursor: pointer;
+  transition: background 0.12s; text-decoration: none;
+}
+.nav-item:hover { background: #F1F5F9; text-decoration: none; }
+.nav-item.active { background: #DBEAFE; color: #1E3A8A; font-weight: 600; }
+.nav-sub-item {
+  display: block; padding: 6px 12px 6px 28px; border-radius: 8px;
+  font-size: 12px; color: #64748B; cursor: pointer;
+  transition: background 0.12s; text-decoration: none;
+}
+.nav-sub-item:hover { background: #F1F5F9; text-decoration: none; }
+.nav-sub-item.active { background: #DBEAFE; color: #1E3A8A; font-weight: 600; }
+
+/* ── Footer ──────────────────────────────────────────── */
+#footer {
+  height: 36px; min-height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: #94A3B8;
+  background: rgba(255,255,255,0.6);
+  border-top: 1px solid #E2E8F0;
+}
+
+/* ── Legend Overlay ───────────────────────────────────── */
+#legend-overlay {
+  display: none; position: fixed; top: 60px; right: 24px;
+  width: 340px; max-height: 80vh; overflow-y: auto;
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(20px); border-radius: 12px;
+  border: 1px solid #E2E8F0;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+  z-index: 500; padding: 20px;
+}
+#legend-overlay.visible { display: block; }
+#legend-overlay h3 { font-size: 14px; font-weight: 700; margin-bottom: 12px; color: #0F172A; }
+.legend-section { margin-bottom: 16px; }
+.legend-section h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #94A3B8; margin-bottom: 8px; font-weight: 600; }
+.legend-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 4px 0; font-size: 12px; color: #475569;
+}
+.legend-swatch {
+  width: 28px; height: 18px; border-radius: 4px; flex-shrink: 0;
+}
+.legend-line {
+  width: 36px; height: 0; flex-shrink: 0; border-bottom-width: 2px;
+}
+
+/* ── Overview page ───────────────────────────────────── */
+.overview-container { padding: 40px; max-width: 900px; margin: 0 auto; }
+.overview-hero { text-align: center; margin-bottom: 36px; }
+.overview-hero h1 { font-size: 32px; font-weight: 800; color: #0F172A; margin-bottom: 8px; }
+.overview-hero p { font-size: 15px; color: #64748B; max-width: 600px; margin: 0 auto; line-height: 1.6; }
+.spine-container { display: flex; justify-content: center; margin: 32px 0; }
+.reader-paths { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 40px; }
+.reader-path-card .rp-icon { font-size: 24px; margin-bottom: 8px; }
+.reader-path-card .rp-label { font-size: 14px; font-weight: 700; color: #0F172A; margin-bottom: 4px; }
+.reader-path-card .rp-desc { font-size: 12px; color: #64748B; line-height: 1.5; }
+
+/* ── Modules page ────────────────────────────────────── */
+.modules-container { padding: 24px; height: 100%; display: flex; flex-direction: column; }
+.modules-toolbar {
+  display: flex; gap: 8px; padding: 8px 0; margin-bottom: 12px; flex-wrap: wrap;
+}
+.edge-toggle {
+  padding: 5px 12px; border-radius: 6px; border: 1px solid #E2E8F0;
+  background: #fff; font-size: 12px; cursor: pointer; color: #475569;
+  transition: background 0.15s;
+}
+.edge-toggle.active { background: #EEF2FF; border-color: #818CF8; color: #4338CA; font-weight: 600; }
+.modules-svg-wrap { flex: 1; overflow: auto; position: relative; }
+
+/* ── Pipeline page ───────────────────────────────────── */
+.pipeline-container { padding: 24px; height: 100%; display: flex; flex-direction: column; }
+.pipeline-header { margin-bottom: 16px; }
+.pipeline-header h2 { font-size: 20px; font-weight: 700; color: #0F172A; margin-bottom: 4px; }
+.pipeline-header p { font-size: 13px; color: #64748B; line-height: 1.5; }
+.pipeline-meta { display: flex; gap: 16px; margin-top: 8px; flex-wrap: wrap; }
+.pipeline-meta-tag {
+  font-size: 11px; padding: 3px 10px; border-radius: 6px;
+  background: #F1F5F9; color: #475569; border: 1px solid #E2E8F0;
+}
+.pipeline-svg-wrap { flex: 1; overflow: auto; position: relative; }
+
+/* ── Node detail (L3) page ───────────────────────────── */
+.node-detail-container { padding: 32px 40px; max-width: 800px; margin: 0 auto; }
+.node-detail-container h1 { font-size: 24px; font-weight: 800; color: #0F172A; margin-bottom: 8px; }
+.nd-what { font-size: 14px; color: #475569; line-height: 1.6; margin-bottom: 24px; padding: 16px; background: #F8FAFC; border-radius: 8px; border-left: 3px solid #2563EB; }
+.nd-section { margin-bottom: 24px; }
+.nd-section h3 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #64748B; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid #E2E8F0; }
+.nd-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.nd-table th { text-align: left; padding: 8px 12px; background: #F8FAFC; font-weight: 600; color: #475569; border: 1px solid #E2E8F0; }
+.nd-table td { padding: 8px 12px; border: 1px solid #E2E8F0; color: #334155; }
+.nd-entry-block { font-size: 13px; padding: 12px 16px; background: #F8FAFC; border-radius: 8px; border: 1px solid #E2E8F0; }
+.nd-entry-block .label { font-weight: 600; color: #64748B; margin-right: 6px; }
+.nd-entry-block .value { color: #0F172A; }
+.nd-entry-block div { margin-bottom: 4px; }
+.nd-cmd { font-family: "SF Mono","Fira Code",monospace; font-size: 13px; padding: 10px 14px; background: #1E293B; color: #E2E8F0; border-radius: 8px; overflow-x: auto; }
+
+/* ── Glossary page ───────────────────────────────────── */
+.glossary-container { padding: 32px 40px; max-width: 800px; margin: 0 auto; }
+.glossary-container h1 { font-size: 24px; font-weight: 800; margin-bottom: 24px; color: #0F172A; }
+.glossary-letter { font-size: 18px; font-weight: 700; color: #2563EB; margin: 20px 0 8px; padding-bottom: 4px; border-bottom: 2px solid #DBEAFE; }
+.glossary-item { padding: 10px 0; border-bottom: 1px solid #F1F5F9; }
+.glossary-item .term { font-weight: 700; color: #0F172A; font-size: 14px; }
+.glossary-item .def { font-size: 13px; color: #475569; line-height: 1.5; margin-top: 2px; }
+.glossary-item .related { font-size: 12px; color: #64748B; margin-top: 4px; }
+.glossary-item .related a { font-size: 12px; }
+
+/* ── Inspector content ───────────────────────────────── */
+#inspector-panel .insp-empty { text-align: center; color: #94A3B8; font-size: 13px; padding-top: 60px; }
+#inspector-panel h2 { font-size: 15px; font-weight: 700; color: #0F172A; margin-bottom: 12px; }
+.insp-section { margin-bottom: 16px; }
+.insp-section h4 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: #94A3B8; margin-bottom: 6px; font-weight: 600;
+  display: flex; align-items: center; gap: 6px;
+}
+.insp-section p { font-size: 13px; color: #475569; line-height: 1.5; }
+.insp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.insp-table th { text-align: left; padding: 5px 8px; background: #F8FAFC; font-weight: 600; color: #64748B; border: 1px solid #E2E8F0; }
+.insp-table td { padding: 5px 8px; border: 1px solid #E2E8F0; color: #334155; }
+.insp-cmd { font-family: "SF Mono","Fira Code",monospace; font-size: 11px; padding: 8px 10px; background: #1E293B; color: #E2E8F0; border-radius: 6px; overflow-x: auto; word-break: break-all; }
+.insp-entry { font-size: 12px; }
+.insp-entry .label { font-weight: 600; color: #64748B; }
+.insp-entry .value { color: #0F172A; }
+
+/* ── SVG shared styles ───────────────────────────────── */
+svg text { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+.svg-node { cursor: pointer; }
+.svg-node:hover rect, .svg-node:hover path, .svg-node:hover ellipse {
+  filter: brightness(0.96);
+}
+.edge-label-bg { fill: #fff; stroke: #E2E8F0; stroke-width: 0.5; rx: 4; ry: 4; }
+.edge-label-text { font-size: 10px; fill: #475569; text-anchor: middle; dominant-baseline: central; }
+
+/* ── Scrollbar ───────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+</style>
+</head>
+<body>
+
+<!-- ════ Header ════ -->
+<div id="header">
+  <div class="project-name"><span>blade</span>-agent</div>
+  <div id="breadcrumb"></div>
+  <button id="legend-btn" onclick="toggleLegend()">Legend</button>
+</div>
+
+<!-- ════ 3-Panel Layout ════ -->
+<div id="app">
+  <div id="nav-panel"></div>
+  <div id="canvas-panel"></div>
+  <div id="inspector-panel">
+    <div class="insp-empty">Click a node to inspect</div>
+  </div>
+</div>
+
+<!-- ════ Legend Overlay ════ -->
+<div id="legend-overlay"></div>
+
+<!-- ════ Footer ════ -->
+<div id="footer">Generated by repo-explorer v1.0</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════
+   blade-agent Repo Explorer — Single-Page Application
+   ══════════════════════════════════════════════════════════ */
+
+// ── Global State ────────────────────────────────────────
+let MANIFEST = null;
+let currentView = 'overview';
+let currentParam = null;
+let selectedNode = null;
+let legendVisible = false;
+
+// ── Color Palettes ──────────────────────────────────────
+const PAL = {
+  data:         { fill: '#F1F5F9', stroke: '#475569', font: '#1E293B' },
+  process:      { fill: '#DBEAFE', stroke: '#2563EB', font: '#1E3A8A' },
+  ai:           { fill: '#D1FAE5', stroke: '#059669', font: '#064E3B' },
+  document:     { fill: '#E0E7FF', stroke: '#4F46E5', font: '#312E81' },
+  database:     { fill: '#CCFBF1', stroke: '#0D9488', font: '#134E4A' },
+  external:     { fill: '#F5F5F4', stroke: '#78716C', font: '#292524' },
+};
+
+const MOD_TYPE = {
+  core:    { fill: '#DBEAFE', stroke: '#2563EB', font: '#1E3A8A' },
+  support: { fill: '#D1FAE5', stroke: '#059669', font: '#064E3B' },
+  infra:   { fill: '#F3F4F6', stroke: '#9CA3AF', font: '#374151' },
+};
+
+const EXEC_TYPE = {
+  deterministic: { fill: '#DBEAFE', stroke: '#2563EB', font: '#1E3A8A' },
+  llm:           { fill: '#D1FAE5', stroke: '#059669', font: '#064E3B' },
+  human:         { fill: '#FFF7ED', stroke: '#EA580C', font: '#9A3412' },
+  external:      { fill: '#F3F4F6', stroke: '#9CA3AF', font: '#374151' },
+};
+
+const EDGE_STYLES = {
+  calls:      { color: '#111827', width: 2.5, dash: '',      marker: 'filled' },
+  writes:     { color: '#2563EB', width: 1.5, dash: '',      marker: 'filled' },
+  reads:      { color: '#6B8DB2', width: 1.5, dash: '4,3',   marker: 'open' },
+  emits:      { color: '#7C3AED', width: 1.5, dash: '2,3',   marker: 'filled' },
+  'depends-on': { color: '#64748B', width: 1,  dash: '6,4',   marker: 'open' },
+};
+
+const GATE_EDGES = {
+  pass: { color: '#16A34A', width: 2, dash: '' },
+  fail: { color: '#DC2626', width: 2, dash: '5,4' },
+};
+
+// ── Helpers ─────────────────────────────────────────────
+function el(tag, attrs, ...children) {
+  const e = document.createElement(tag);
+  if (attrs) Object.entries(attrs).forEach(([k, v]) => {
+    if (k === 'className') e.className = v;
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2).toLowerCase(), v);
+    else if (k === 'innerHTML') e.innerHTML = v;
+    else if (k === 'style' && typeof v === 'object') Object.assign(e.style, v);
+    else e.setAttribute(k, v);
+  });
+  children.flat().forEach(c => {
+    if (c == null) return;
+    e.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+  });
+  return e;
+}
+
+function svgEl(tag, attrs) {
+  const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  if (attrs) Object.entries(attrs).forEach(([k, v]) => {
+    if (v != null) e.setAttribute(k, v);
+  });
+  return e;
+}
+
+function svgText(x, y, text, attrs = {}) {
+  const t = svgEl('text', { x, y, 'text-anchor': 'middle', 'dominant-baseline': 'central', ...attrs });
+  t.textContent = text;
+  return t;
+}
+
+function navigate(hash) {
+  if (hash && !hash.startsWith('#')) hash = '#' + hash;
+  window.location.hash = hash || '#overview';
+}
+
+// ── SVG Shape Factories ─────────────────────────────────
+// All shapes centered at (cx, cy) with given (w, h)
+function svgParallelogram(cx, cy, w, h, fill, stroke) {
+  const sk = 16;
+  const x = cx - w/2, y = cy - h/2;
+  const d = `M${x+sk},${y} L${x+w},${y} L${x+w-sk},${y+h} L${x},${y+h} Z`;
+  return svgEl('path', { d, fill, stroke, 'stroke-width': '1.5' });
+}
+
+function svgRoundedRect(cx, cy, w, h, fill, stroke, rx = 8) {
+  return svgEl('rect', {
+    x: cx - w/2, y: cy - h/2, width: w, height: h,
+    rx, ry: rx, fill, stroke, 'stroke-width': '1.5'
+  });
+}
+
+function svgSoftRect(cx, cy, w, h, fill, stroke) {
+  return svgEl('rect', {
+    x: cx - w/2, y: cy - h/2, width: w, height: h,
+    rx: 16, ry: 16, fill, stroke, 'stroke-width': '2.5'
+  });
+}
+
+function svgDocument(cx, cy, w, h, fill, stroke) {
+  const x = cx - w/2, y = cy - h/2;
+  const waveDip = 8;
+  const d = `M${x},${y} L${x+w},${y} L${x+w},${y+h-waveDip}
+             Q${x+w*0.75},${y+h+waveDip*0.5} ${x+w*0.5},${y+h-waveDip}
+             Q${x+w*0.25},${y+h-waveDip*2.5} ${x},${y+h-waveDip} Z`;
+  return svgEl('path', { d, fill, stroke, 'stroke-width': '1.5' });
+}
+
+function svgCylinder(cx, cy, w, h, fill, stroke) {
+  const x = cx - w/2, y = cy - h/2;
+  const ry = 10;
+  const body = svgEl('path', {
+    d: `M${x},${y+ry} L${x},${y+h-ry}
+        A${w/2},${ry} 0 0,0 ${x+w},${y+h-ry}
+        L${x+w},${y+ry}
+        A${w/2},${ry} 0 0,0 ${x},${y+ry} Z`,
+    fill, stroke, 'stroke-width': '1.5'
+  });
+  const top = svgEl('ellipse', {
+    cx, cy: y + ry, rx: w/2, ry,
+    fill, stroke, 'stroke-width': '1.5'
+  });
+  const g = svgEl('g');
+  g.appendChild(body);
+  g.appendChild(top);
+  return g;
+}
+
+function svgArtifact(cx, cy, w, h, fill, stroke) {
+  const x = cx - w/2, y = cy - h/2;
+  const fold = 14;
+  const body = svgEl('path', {
+    d: `M${x},${y} L${x+w-fold},${y} L${x+w},${y+fold} L${x+w},${y+h} L${x},${y+h} Z`,
+    fill, stroke, 'stroke-width': '1.5'
+  });
+  const foldLine = svgEl('path', {
+    d: `M${x+w-fold},${y} L${x+w-fold},${y+fold} L${x+w},${y+fold}`,
+    fill: 'none', stroke, 'stroke-width': '1'
+  });
+  const g = svgEl('g');
+  g.appendChild(body);
+  g.appendChild(foldLine);
+  return g;
+}
+
+function svgPill(cx, cy, w, h, fill, stroke, sw = 1.5) {
+  return svgEl('rect', {
+    x: cx - w/2, y: cy - h/2, width: w, height: h,
+    rx: 999, ry: 999, fill, stroke, 'stroke-width': sw
+  });
+}
+
+function svgDropShadow(cx, cy, w, h, rx = 8) {
+  return svgEl('rect', {
+    x: cx - w/2 + 2, y: cy - h/2 + 2, width: w, height: h,
+    rx, ry: rx, fill: 'rgba(0,0,0,0.06)', stroke: 'none'
+  });
+}
+
+// ── Shape dispatcher for L0 ─────────────────────────────
+function drawNodeShape(shape, cx, cy, w, h, pal) {
+  switch (shape) {
+    case 'data':     return svgParallelogram(cx, cy, w, h, pal.fill, pal.stroke);
+    case 'process':  return svgRoundedRect(cx, cy, w, h, pal.fill, pal.stroke, 8);
+    case 'ai':       return svgSoftRect(cx, cy, w, h, pal.fill, pal.stroke);
+    case 'document': return svgDocument(cx, cy, w, h, pal.fill, pal.stroke);
+    case 'database': return svgCylinder(cx, cy, w, h, pal.fill, pal.stroke);
+    case 'external': {
+      const g = svgEl('g');
+      g.appendChild(svgRoundedRect(cx, cy, w, h, pal.fill, pal.stroke, 20));
+      return g;
+    }
+    default:         return svgRoundedRect(cx, cy, w, h, pal.fill, pal.stroke, 8);
+  }
+}
+
+// ── Shape dispatcher for L2 ─────────────────────────────
+function drawStepShape(step, cx, cy, w, h, pal) {
+  const shape = step.shape;
+  switch (shape) {
+    case 'artifact':  return svgArtifact(cx, cy, w, h, pal.fill, pal.stroke);
+    case 'decision':  return svgPill(cx, cy, w, h, pal.fill,
+                            step.label && step.label.includes('?') ? '#D97706' : pal.stroke, 2);
+    case 'group': {
+      const r = svgRoundedRect(cx, cy, w, h, 'rgba(255,255,255,0.3)', pal.stroke, 10);
+      r.setAttribute('stroke-dasharray', '6,3');
+      return r;
+    }
+    default:          return svgRoundedRect(cx, cy, w, h, pal.fill, pal.stroke, 8);
+  }
+}
+
+// ── Arrow Markers ───────────────────────────────────────
+function createDefs() {
+  const defs = svgEl('defs');
+
+  // Filled arrow markers for each edge color
+  const colors = {
+    'calls': '#111827', 'writes': '#2563EB', 'reads': '#6B8DB2',
+    'emits': '#7C3AED', 'depends-on': '#64748B',
+    'pass': '#16A34A', 'fail': '#DC2626',
+    'spine': '#111827',
+  };
+  Object.entries(colors).forEach(([name, color]) => {
+    const mFill = svgEl('marker', {
+      id: `arrow-${name}`, viewBox: '0 0 10 8', refX: '10', refY: '4',
+      markerWidth: '8', markerHeight: '6', orient: 'auto-start-reverse'
+    });
+    mFill.appendChild(svgEl('path', { d: 'M0,0 L10,4 L0,8 Z', fill: color }));
+    defs.appendChild(mFill);
+
+    const mOpen = svgEl('marker', {
+      id: `arrow-open-${name}`, viewBox: '0 0 10 8', refX: '10', refY: '4',
+      markerWidth: '8', markerHeight: '6', orient: 'auto-start-reverse'
+    });
+    mOpen.appendChild(svgEl('path', { d: 'M0,0 L10,4 L0,8', fill: 'none', stroke: color, 'stroke-width': '1.5' }));
+    defs.appendChild(mOpen);
+  });
+
+  // Drop shadow filter
+  const filter = svgEl('filter', { id: 'drop-shadow', x: '-4%', y: '-4%', width: '108%', height: '108%' });
+  const feOffset = svgEl('feOffset', { in: 'SourceAlpha', dx: '1', dy: '2', result: 'offset' });
+  const feBlur = svgEl('feGaussianBlur', { in: 'offset', stdDeviation: '2', result: 'blur' });
+  const feFlood = svgEl('feFlood', { 'flood-color': 'rgba(0,0,0,0.08)', result: 'color' });
+  const feComposite = svgEl('feComposite', { in: 'color', in2: 'blur', operator: 'in', result: 'shadow' });
+  const feMerge = svgEl('feMerge');
+  feMerge.appendChild(svgEl('feMergeNode', { in: 'shadow' }));
+  feMerge.appendChild(svgEl('feMergeNode', { in: 'SourceGraphic' }));
+  filter.appendChild(feOffset);
+  filter.appendChild(feBlur);
+  filter.appendChild(feFlood);
+  filter.appendChild(feComposite);
+  filter.appendChild(feMerge);
+  defs.appendChild(filter);
+
+  return defs;
+}
+
+// ── Edge Drawing ────────────────────────────────────────
+function drawEdge(svg, x1, y1, x2, y2, edgeData, vertical = true) {
+  const type = edgeData.type || 'calls';
+  const label = edgeData.label || '';
+
+  // Determine if this is a gate edge
+  const isPass = label.toLowerCase() === 'pass' || label.toLowerCase().startsWith('pass');
+  const isFail = label.toLowerCase() === 'fail' || label.toLowerCase().startsWith('fail')
+              || label.toLowerCase().includes('rework') || label.toLowerCase().includes('refine')
+              || label.toLowerCase().includes('next iteration') || label.toLowerCase().includes('updated');
+
+  let style, markerRef;
+  if (isPass) {
+    style = GATE_EDGES.pass;
+    markerRef = 'url(#arrow-pass)';
+  } else if (isFail) {
+    style = GATE_EDGES.fail;
+    markerRef = 'url(#arrow-fail)';
+  } else {
+    style = EDGE_STYLES[type] || EDGE_STYLES.calls;
+    const mType = style.marker === 'open' ? 'open-' : '';
+    markerRef = `url(#arrow-${mType}${type})`;
+  }
+
+  const g = svgEl('g', { class: `edge-group edge-type-${type}` });
+
+  // Draw path
+  let d;
+  if (edgeData._curved) {
+    // Curved path for back edges or decision branches
+    const mx = edgeData._mx || (x1 + x2) / 2;
+    const my = edgeData._my || (y1 + y2) / 2;
+    d = `M${x1},${y1} Q${mx},${my} ${x2},${y2}`;
+  } else if (vertical) {
+    const midY = (y1 + y2) / 2;
+    d = `M${x1},${y1} C${x1},${midY} ${x2},${midY} ${x2},${y2}`;
+  } else {
+    const midX = (x1 + x2) / 2;
+    d = `M${x1},${y1} C${midX},${y1} ${midX},${y2} ${x2},${y2}`;
+  }
+
+  const path = svgEl('path', {
+    d, fill: 'none',
+    stroke: style.color, 'stroke-width': style.width,
+    'stroke-dasharray': (isFail ? GATE_EDGES.fail.dash : style.dash) || null,
+    'marker-end': markerRef
+  });
+  g.appendChild(path);
+
+  // Label pill at midpoint
+  if (label) {
+    const lx = (x1 + x2) / 2 + (edgeData._labelOffsetX || 0);
+    const ly = (y1 + y2) / 2 + (edgeData._labelOffsetY || 0);
+    const textEl = svgText(lx, ly, label, { 'font-size': '10', fill: '#475569' });
+    // Measure approximate text width
+    const tw = label.length * 5.5 + 12;
+    const bg = svgEl('rect', {
+      x: lx - tw/2, y: ly - 8, width: tw, height: 16,
+      rx: 4, ry: 4, fill: '#fff', stroke: '#E2E8F0', 'stroke-width': '0.5'
+    });
+    g.appendChild(bg);
+    g.appendChild(textEl);
+  }
+
+  svg.appendChild(g);
+  return g;
+}
+
+// ══════════════════════════════════════════════════════════
+//  ROUTER
+// ══════════════════════════════════════════════════════════
+function route() {
+  const hash = window.location.hash || '#overview';
+  const parts = hash.slice(1).split('/');
+  currentView = parts[0] || 'overview';
+  currentParam = parts[1] || null;
+
+  updateNav();
+  updateBreadcrumb();
+  updateLegend();
+
+  const canvas = document.getElementById('canvas-panel');
+  const inspector = document.getElementById('inspector-panel');
+  canvas.innerHTML = '';
+  inspector.innerHTML = '<div class="insp-empty">Click a node to inspect</div>';
+  inspector.classList.remove('visible');
+  selectedNode = null;
+
+  switch (currentView) {
+    case 'overview':  renderOverview(canvas); break;
+    case 'modules':   renderModules(canvas, inspector); break;
+    case 'pipeline':  renderPipeline(canvas, inspector); break;
+    case 'node':      renderNodeDetail(canvas); break;
+    case 'glossary':  renderGlossary(canvas); break;
+    default:          renderOverview(canvas); break;
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  NAV
+// ══════════════════════════════════════════════════════════
+function updateNav() {
+  const nav = document.getElementById('nav-panel');
+  nav.innerHTML = '';
+
+  const items = [
+    { label: 'Overview', hash: '#overview', view: 'overview' },
+    { label: 'Modules', hash: '#modules', view: 'modules' },
+  ];
+
+  const navSection = el('div', { className: 'nav-section' });
+  items.forEach(item => {
+    const a = el('a', {
+      className: 'nav-item' + (currentView === item.view && !currentParam ? ' active' : ''),
+      href: item.hash,
+    }, item.label);
+    navSection.appendChild(a);
+  });
+  nav.appendChild(navSection);
+
+  // Pipelines
+  if (MANIFEST && MANIFEST.pipelines) {
+    const label = el('div', { className: 'nav-section-label' }, 'Pipelines');
+    nav.appendChild(label);
+    const pipSection = el('div', { className: 'nav-section' });
+    MANIFEST.pipelines.forEach(p => {
+      const a = el('a', {
+        className: 'nav-sub-item' + (currentView === 'pipeline' && currentParam === p.id ? ' active' : ''),
+        href: `#pipeline/${p.id}`,
+      }, p.label);
+      pipSection.appendChild(a);
+    });
+    nav.appendChild(pipSection);
+  }
+
+  // Modules list
+  if (MANIFEST && MANIFEST.modules) {
+    const label = el('div', { className: 'nav-section-label' }, 'Nodes');
+    nav.appendChild(label);
+    const modSection = el('div', { className: 'nav-section' });
+    MANIFEST.modules.forEach(m => {
+      const a = el('a', {
+        className: 'nav-sub-item' + (currentView === 'node' && currentParam === m.id ? ' active' : ''),
+        href: `#node/${m.id}`,
+      }, m.label);
+      modSection.appendChild(a);
+    });
+    nav.appendChild(modSection);
+  }
+
+  // Glossary
+  const glossLabel = el('div', { className: 'nav-section-label' }, 'Reference');
+  nav.appendChild(glossLabel);
+  const glossSection = el('div', { className: 'nav-section' });
+  glossSection.appendChild(el('a', {
+    className: 'nav-item' + (currentView === 'glossary' ? ' active' : ''),
+    href: '#glossary',
+  }, 'Glossary'));
+  nav.appendChild(glossSection);
+}
+
+// ══════════════════════════════════════════════════════════
+//  BREADCRUMB
+// ══════════════════════════════════════════════════════════
+function updateBreadcrumb() {
+  const bc = document.getElementById('breadcrumb');
+  bc.innerHTML = '';
+
+  const crumbs = [{ label: 'blade-agent', hash: '#overview' }];
+
+  switch (currentView) {
+    case 'overview':
+      crumbs.push({ label: 'Overview' });
+      break;
+    case 'modules':
+      crumbs.push({ label: 'Modules' });
+      break;
+    case 'pipeline': {
+      crumbs.push({ label: 'Pipelines', hash: '#overview' });
+      const p = MANIFEST?.pipelines?.find(p => p.id === currentParam);
+      if (p) crumbs.push({ label: p.label });
+      break;
+    }
+    case 'node': {
+      crumbs.push({ label: 'Modules', hash: '#modules' });
+      const m = MANIFEST?.modules?.find(m => m.id === currentParam);
+      if (m) crumbs.push({ label: m.label });
+      break;
+    }
+    case 'glossary':
+      crumbs.push({ label: 'Glossary' });
+      break;
+  }
+
+  crumbs.forEach((c, i) => {
+    if (i > 0) bc.appendChild(el('span', { className: 'sep' }, '/'));
+    if (c.hash && i < crumbs.length - 1) {
+      bc.appendChild(el('a', { href: c.hash }, c.label));
+    } else {
+      bc.appendChild(el('span', { style: { color: '#1E293B', fontWeight: i === crumbs.length-1 ? '600' : '400' } }, c.label));
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+//  LEGEND
+// ══════════════════════════════════════════════════════════
+function toggleLegend() {
+  legendVisible = !legendVisible;
+  document.getElementById('legend-overlay').classList.toggle('visible', legendVisible);
+}
+
+function updateLegend() {
+  const leg = document.getElementById('legend-overlay');
+  leg.innerHTML = '';
+
+  const h = el('h3', null, 'Legend');
+  leg.appendChild(h);
+
+  if (currentView === 'overview' || currentView === 'node' || currentView === 'glossary') {
+    // L0 legend - shapes
+    const sec = el('div', { className: 'legend-section' });
+    sec.appendChild(el('h4', null, 'Node Shapes'));
+    const shapes = [
+      { label: 'Data (Parallelogram)', pal: PAL.data },
+      { label: 'Process (Rectangle)', pal: PAL.process },
+      { label: 'AI / LLM (Soft Rect)', pal: PAL.ai },
+      { label: 'Document (Page)', pal: PAL.document },
+      { label: 'Database (Cylinder)', pal: PAL.database },
+    ];
+    shapes.forEach(s => {
+      const row = el('div', { className: 'legend-row' });
+      row.appendChild(el('div', { className: 'legend-swatch', style: { background: s.pal.fill, border: `2px solid ${s.pal.stroke}` } }));
+      row.appendChild(el('span', null, s.label));
+      sec.appendChild(row);
+    });
+    leg.appendChild(sec);
+
+    const edgeSec = el('div', { className: 'legend-section' });
+    edgeSec.appendChild(el('h4', null, 'Edges'));
+    edgeSec.appendChild(el('div', { className: 'legend-row' },
+      el('div', { style: { width: '36px', borderBottom: '3px solid #111827', flexShrink: '0' } }),
+      el('span', null, 'Main flow')
+    ));
+    leg.appendChild(edgeSec);
+  }
+
+  if (currentView === 'modules') {
+    // L1 legend - module types
+    const sec = el('div', { className: 'legend-section' });
+    sec.appendChild(el('h4', null, 'Module Types'));
+    [
+      { label: 'Core', pal: MOD_TYPE.core },
+      { label: 'Support', pal: MOD_TYPE.support },
+      { label: 'Infrastructure', pal: MOD_TYPE.infra },
+    ].forEach(s => {
+      const row = el('div', { className: 'legend-row' });
+      row.appendChild(el('div', { className: 'legend-swatch', style: { background: s.pal.fill, border: `2px solid ${s.pal.stroke}`, borderRadius: '4px' } }));
+      row.appendChild(el('span', null, s.label));
+      sec.appendChild(row);
+    });
+    leg.appendChild(sec);
+
+    const edgeSec = el('div', { className: 'legend-section' });
+    edgeSec.appendChild(el('h4', null, 'Edge Types'));
+    Object.entries(EDGE_STYLES).forEach(([type, st]) => {
+      const row = el('div', { className: 'legend-row' });
+      const lineDiv = el('div', { style: { width: '36px', flexShrink: '0', borderBottom: `${st.width}px ${st.dash ? 'dashed' : 'solid'} ${st.color}` } });
+      row.appendChild(lineDiv);
+      row.appendChild(el('span', null, type));
+      edgeSec.appendChild(row);
+    });
+    leg.appendChild(edgeSec);
+  }
+
+  if (currentView === 'pipeline') {
+    // L2 legend - executor types + shapes + edges
+    const colorSec = el('div', { className: 'legend-section' });
+    colorSec.appendChild(el('h4', null, 'Executor Types'));
+    [
+      { label: 'Deterministic', pal: EXEC_TYPE.deterministic },
+      { label: 'LLM', pal: EXEC_TYPE.llm },
+      { label: 'Human', pal: EXEC_TYPE.human },
+      { label: 'External', pal: EXEC_TYPE.external },
+    ].forEach(s => {
+      const row = el('div', { className: 'legend-row' });
+      row.appendChild(el('div', { className: 'legend-swatch', style: { background: s.pal.fill, border: `2px solid ${s.pal.stroke}`, borderRadius: '4px' } }));
+      row.appendChild(el('span', null, s.label));
+      colorSec.appendChild(row);
+    });
+    leg.appendChild(colorSec);
+
+    const shapeSec = el('div', { className: 'legend-section' });
+    shapeSec.appendChild(el('h4', null, 'Step Shapes'));
+    [
+      { label: 'Artifact (fold corner)', shape: 'artifact' },
+      { label: 'Process (rounded rect)', shape: 'process' },
+      { label: 'Decision / Gate (pill)', shape: 'decision' },
+      { label: 'Group (dashed border)', shape: 'group' },
+    ].forEach(s => {
+      shapeSec.appendChild(el('div', { className: 'legend-row' }, el('span', null, s.label)));
+    });
+    leg.appendChild(shapeSec);
+
+    const edgeSec = el('div', { className: 'legend-section' });
+    edgeSec.appendChild(el('h4', null, 'Edge Types'));
+    Object.entries(EDGE_STYLES).forEach(([type, st]) => {
+      const row = el('div', { className: 'legend-row' });
+      row.appendChild(el('div', { style: { width: '36px', flexShrink: '0', borderBottom: `${st.width}px ${st.dash ? 'dashed' : 'solid'} ${st.color}` } }));
+      row.appendChild(el('span', null, type));
+      edgeSec.appendChild(row);
+    });
+    // Gate edges
+    const gateRow1 = el('div', { className: 'legend-row' });
+    gateRow1.appendChild(el('div', { style: { width: '36px', flexShrink: '0', borderBottom: '2px solid #16A34A' } }));
+    gateRow1.appendChild(el('span', null, 'Pass (gate)'));
+    edgeSec.appendChild(gateRow1);
+    const gateRow2 = el('div', { className: 'legend-row' });
+    gateRow2.appendChild(el('div', { style: { width: '36px', flexShrink: '0', borderBottom: '2px dashed #DC2626' } }));
+    gateRow2.appendChild(el('span', null, 'Fail / Rework (gate)'));
+    edgeSec.appendChild(gateRow2);
+    leg.appendChild(edgeSec);
+  }
+}
+
+// Close legend when clicking outside
+document.addEventListener('click', (e) => {
+  const leg = document.getElementById('legend-overlay');
+  const btn = document.getElementById('legend-btn');
+  if (legendVisible && !leg.contains(e.target) && !btn.contains(e.target)) {
+    legendVisible = false;
+    leg.classList.remove('visible');
+  }
+});
+
+// ══════════════════════════════════════════════════════════
+//  L0 — OVERVIEW
+// ══════════════════════════════════════════════════════════
+function renderOverview(canvas) {
+  const container = el('div', { className: 'overview-container' });
+
+  // Hero
+  const hero = el('div', { className: 'overview-hero' });
+  hero.appendChild(el('h1', null, MANIFEST.meta.name));
+  hero.appendChild(el('p', null, MANIFEST.meta.oneLiner));
+  container.appendChild(hero);
+
+  // Spine SVG
+  const spineModules = MANIFEST.modules
+    .filter(m => m.spineOrder)
+    .sort((a, b) => a.spineOrder - b.spineOrder);
+
+  const nodeW = 200, nodeH = 58;
+  const gapY = 32;
+  const totalH = spineModules.length * (nodeH + gapY) - gapY + 60;
+  const svgW = 320;
+
+  const svgWrap = el('div', { className: 'spine-container' });
+  const svg = svgEl('svg', { width: svgW, height: totalH, viewBox: `0 0 ${svgW} ${totalH}` });
+  svg.appendChild(createDefs());
+
+  const cx = svgW / 2;
+  const startY = 30;
+
+  spineModules.forEach((mod, i) => {
+    const cy = startY + i * (nodeH + gapY) + nodeH / 2;
+    const pal = PAL[mod.shape] || PAL.process;
+    const g = svgEl('g', { class: 'svg-node', 'data-id': mod.id });
+
+    // Drop shadow
+    g.appendChild(svgDropShadow(cx, cy, nodeW, nodeH, mod.shape === 'ai' ? 16 : 8));
+
+    // Shape
+    g.appendChild(drawNodeShape(mod.shape, cx, cy, nodeW, nodeH, pal));
+
+    // Label text
+    g.appendChild(svgText(cx, cy - 8, mod.label, {
+      'font-size': '13', 'font-weight': 'bold', fill: pal.font
+    }));
+
+    // spineIO text
+    if (mod.spineIO) {
+      g.appendChild(svgText(cx, cy + 10, mod.spineIO, {
+        'font-size': '10', fill: '#94A3B8'
+      }));
+    }
+
+    g.addEventListener('click', () => navigate(`#node/${mod.id}`));
+    svg.appendChild(g);
+
+    // Edge to next node (spine arrow)
+    if (i < spineModules.length - 1) {
+      const y1 = cy + nodeH / 2;
+      const y2 = cy + nodeH / 2 + gapY;
+      const line = svgEl('line', {
+        x1: cx, y1, x2: cx, y2,
+        stroke: '#111827', 'stroke-width': '3',
+        'marker-end': 'url(#arrow-spine)'
+      });
+      svg.appendChild(line);
+    }
+  });
+
+  svgWrap.appendChild(svg);
+  container.appendChild(svgWrap);
+
+  // Reader path cards
+  if (MANIFEST.readerPaths) {
+    const rpSection = el('div', { className: 'reader-paths' });
+    MANIFEST.readerPaths.forEach(rp => {
+      const card = el('div', { className: 'reader-path-card glass-card' });
+      card.appendChild(el('div', { className: 'rp-icon' }, rp.icon));
+      card.appendChild(el('div', { className: 'rp-label' }, rp.label));
+      card.appendChild(el('div', { className: 'rp-desc' }, rp.description));
+      card.addEventListener('click', () => {
+        if (rp.steps && rp.steps[0]) navigate(rp.steps[0].page);
+      });
+      rpSection.appendChild(card);
+    });
+    container.appendChild(rpSection);
+  }
+
+  canvas.appendChild(container);
+}
+
+// ══════════════════════════════════════════════════════════
+//  L1 — MODULES
+// ══════════════════════════════════════════════════════════
+function renderModules(canvas, inspector) {
+  const container = el('div', { className: 'modules-container' });
+
+  // Edge toggle toolbar
+  const toolbar = el('div', { className: 'modules-toolbar' });
+  const activeEdgeTypes = new Set(['calls', 'depends-on']);
+
+  Object.keys(EDGE_STYLES).forEach(type => {
+    const btn = el('button', {
+      className: 'edge-toggle' + (activeEdgeTypes.has(type) ? ' active' : ''),
+      onClick: () => {
+        if (activeEdgeTypes.has(type)) activeEdgeTypes.delete(type);
+        else activeEdgeTypes.add(type);
+        btn.classList.toggle('active');
+        renderModulesSVG();
+      }
+    }, type);
+    toolbar.appendChild(btn);
+  });
+  container.appendChild(toolbar);
+
+  const svgWrap = el('div', { className: 'modules-svg-wrap' });
+  container.appendChild(svgWrap);
+  canvas.appendChild(container);
+
+  inspector.classList.add('visible');
+
+  function renderModulesSVG() {
+    svgWrap.innerHTML = '';
+
+    const modules = MANIFEST.modules;
+
+    // Compute dependency depth for layered layout
+    const depthMap = {};
+    function computeDepth(modId, visited = new Set()) {
+      if (depthMap[modId] !== undefined) return depthMap[modId];
+      if (visited.has(modId)) return 0;
+      visited.add(modId);
+      const mod = modules.find(m => m.id === modId);
+      if (!mod || !mod.dependencies || mod.dependencies.length === 0) {
+        depthMap[modId] = 0;
+        return 0;
+      }
+      const maxDep = Math.max(...mod.dependencies.map(d => computeDepth(d, visited)));
+      depthMap[modId] = maxDep + 1;
+      return depthMap[modId];
+    }
+    modules.forEach(m => computeDepth(m.id));
+
+    // Group by depth
+    const layers = {};
+    modules.forEach(m => {
+      const d = depthMap[m.id] || 0;
+      if (!layers[d]) layers[d] = [];
+      layers[d].push(m);
+    });
+
+    const nodeW = 150, nodeH = 52;
+    const hGap = 180, vGap = 76;
+    const padLeft = 60, padTop = 50;
+
+    const maxDepth = Math.max(...Object.keys(layers).map(Number));
+    const maxLayerSize = Math.max(...Object.values(layers).map(l => l.length));
+
+    const svgW = (maxDepth + 1) * hGap + padLeft + 100;
+    const svgH = maxLayerSize * vGap + padTop + 80;
+
+    const svg = svgEl('svg', { width: svgW, height: svgH, viewBox: `0 0 ${svgW} ${svgH}` });
+    svg.appendChild(createDefs());
+
+    // Position map
+    const posMap = {};
+    Object.entries(layers).forEach(([depth, mods]) => {
+      const d = Number(depth);
+      const layerH = mods.length * vGap;
+      const offsetY = (svgH - layerH) / 2;
+      mods.forEach((mod, i) => {
+        posMap[mod.id] = {
+          cx: padLeft + d * hGap + nodeW / 2,
+          cy: offsetY + i * vGap + nodeH / 2
+        };
+      });
+    });
+
+    // Draw edges first (underneath nodes)
+    const edgeGroup = svgEl('g');
+    modules.forEach(mod => {
+      if (!mod.dependencies) return;
+      mod.dependencies.forEach(depId => {
+        if (!posMap[depId] || !posMap[mod.id]) return;
+        // Check if 'depends-on' is active
+        if (!activeEdgeTypes.has('depends-on')) return;
+        const src = posMap[depId];
+        const tgt = posMap[mod.id];
+        drawEdge(edgeGroup,
+          src.cx + nodeW/2, src.cy,
+          tgt.cx - nodeW/2, tgt.cy,
+          { type: 'depends-on', label: '' },
+          false
+        );
+      });
+    });
+    svg.appendChild(edgeGroup);
+
+    // Draw nodes
+    modules.forEach(mod => {
+      const pos = posMap[mod.id];
+      if (!pos) return;
+      const pal = MOD_TYPE[mod.type] || MOD_TYPE.core;
+      const g = svgEl('g', { class: 'svg-node', 'data-id': mod.id, filter: 'url(#drop-shadow)' });
+
+      g.appendChild(svgRoundedRect(pos.cx, pos.cy, nodeW, nodeH, pal.fill, pal.stroke, 10));
+
+      // Label
+      const labelText = mod.label.length > 18 ? mod.label.slice(0, 16) + '...' : mod.label;
+      g.appendChild(svgText(pos.cx, pos.cy - 6, labelText, {
+        'font-size': '12', 'font-weight': 'bold', fill: pal.font
+      }));
+
+      // Type badge
+      g.appendChild(svgText(pos.cx, pos.cy + 10, mod.type, {
+        'font-size': '10', fill: '#94A3B8'
+      }));
+
+      g.addEventListener('click', () => {
+        selectedNode = mod.id;
+        showInspector(inspector, mod);
+        // highlight
+        svg.querySelectorAll('.svg-node').forEach(n => {
+          n.querySelector('rect').setAttribute('stroke-width', n.getAttribute('data-id') === mod.id ? '3' : '1.5');
+        });
+      });
+
+      svg.appendChild(g);
+    });
+
+    svgWrap.appendChild(svg);
+  }
+
+  renderModulesSVG();
+}
+
+// ── Inspector Panel ─────────────────────────────────────
+function showInspector(inspector, mod) {
+  inspector.innerHTML = '';
+  inspector.classList.add('visible');
+
+  inspector.appendChild(el('h2', null, mod.label));
+
+  const detail = mod.detail || {};
+
+  // What
+  if (detail.what) {
+    const sec = el('div', { className: 'insp-section' });
+    sec.appendChild(el('h4', null, 'What'));
+    sec.appendChild(el('p', null, detail.what));
+    inspector.appendChild(sec);
+  }
+
+  // Purpose fallback
+  if (!detail.what && mod.purpose) {
+    const sec = el('div', { className: 'insp-section' });
+    sec.appendChild(el('h4', null, 'What'));
+    sec.appendChild(el('p', null, mod.purpose));
+    inspector.appendChild(sec);
+  }
+
+  // Inputs
+  if (detail.inputs && detail.inputs.length) {
+    const sec = el('div', { className: 'insp-section' });
+    sec.appendChild(el('h4', null, 'Inputs'));
+    const tbl = el('table', { className: 'insp-table' });
+    const thead = el('tr');
+    thead.appendChild(el('th', null, 'Name'));
+    thead.appendChild(el('th', null, 'Type'));
+    tbl.appendChild(thead);
+    detail.inputs.forEach(inp => {
+      const tr = el('tr');
+      tr.appendChild(el('td', null, inp.name));
+      tr.appendChild(el('td', null, inp.type || ''));
+      tbl.appendChild(tr);
+    });
+    sec.appendChild(tbl);
+    inspector.appendChild(sec);
+  }
+
+  // Outputs
+  if (detail.outputs && detail.outputs.length) {
+    const sec = el('div', { className: 'insp-section' });
+    sec.appendChild(el('h4', null, 'Outputs'));
+    const tbl = el('table', { className: 'insp-table' });
+    const thead = el('tr');
+    thead.appendChild(el('th', null, 'Name'));
+    thead.appendChild(el('th', null, 'Type'));
+    tbl.appendChild(thead);
+    detail.outputs.forEach(out => {
+      const tr = el('tr');
+      tr.appendChild(el('td', null, out.name));
+      tr.appendChild(el('td', null, out.type || ''));
+      tbl.appendChild(tr);
+    });
+    sec.appendChild(tbl);
+    inspector.appendChild(sec);
+  }
+
+  // Entry point
+  if (detail.entryFile || mod.entryFile) {
+    const sec = el('div', { className: 'insp-section' });
+    sec.appendChild(el('h4', null, 'Entry Point'));
+    const block = el('div', { className: 'insp-entry' });
+    const file = detail.entryFile || mod.entryFile;
+    const func = detail.entryFunction || mod.entryFunction;
+    const line = detail.entryLine || mod.entryLine;
+    block.appendChild(el('div', null,
+      el('span', { className: 'label' }, 'File: '),
+      el('code', null, file)
+    ));
+    if (func) block.appendChild(el('div', null,
+      el('span', { className: 'label' }, 'Function: '),
+      el('code', null, func + '()')
+    ));
+    if (line) block.appendChild(el('div', null,
+      el('span', { className: 'label' }, 'Line: '),
+      el('span', { className: 'value' }, String(line))
+    ));
+    sec.appendChild(block);
+    inspector.appendChild(sec);
+  }
+
+  // Run command
+  if (detail.runCmd) {
+    const sec = el('div', { className: 'insp-section' });
+    sec.appendChild(el('h4', null, 'Run'));
+    sec.appendChild(el('div', { className: 'insp-cmd' }, detail.runCmd));
+    inspector.appendChild(sec);
+  }
+
+  // Config
+  if (detail.configKeys && detail.configKeys.length) {
+    const sec = el('div', { className: 'insp-section' });
+    sec.appendChild(el('h4', null, 'Configuration'));
+    const tbl = el('table', { className: 'insp-table' });
+    const thead = el('tr');
+    thead.appendChild(el('th', null, 'Key'));
+    thead.appendChild(el('th', null, 'Default'));
+    thead.appendChild(el('th', null, 'Description'));
+    tbl.appendChild(thead);
+    detail.configKeys.forEach(ck => {
+      const tr = el('tr');
+      tr.appendChild(el('td', null, el('code', null, ck.key)));
+      tr.appendChild(el('td', null, ck.default || '-'));
+      tr.appendChild(el('td', null, ck.description));
+      tbl.appendChild(tr);
+    });
+    sec.appendChild(tbl);
+    inspector.appendChild(sec);
+  }
+
+  // Failure Modes
+  if (detail.failureModes && detail.failureModes.length) {
+    const sec = el('div', { className: 'insp-section' });
+    sec.appendChild(el('h4', null, 'Failure Modes'));
+    const tbl = el('table', { className: 'insp-table' });
+    const thead = el('tr');
+    thead.appendChild(el('th', null, 'Condition'));
+    thead.appendChild(el('th', null, 'Handling'));
+    tbl.appendChild(thead);
+    detail.failureModes.forEach(fm => {
+      const tr = el('tr');
+      tr.appendChild(el('td', null, fm.condition));
+      tr.appendChild(el('td', null, fm.handling));
+      tbl.appendChild(tr);
+    });
+    sec.appendChild(tbl);
+    inspector.appendChild(sec);
+  }
+
+  // Files
+  if (mod.files && mod.files.length) {
+    const sec = el('div', { className: 'insp-section' });
+    sec.appendChild(el('h4', null, 'Files'));
+    mod.files.forEach(f => {
+      sec.appendChild(el('div', null, el('code', { style: { fontSize: '11px' } }, f)));
+    });
+    inspector.appendChild(sec);
+  }
+
+  // Public API
+  if (mod.publicAPI && mod.publicAPI.length) {
+    const sec = el('div', { className: 'insp-section' });
+    sec.appendChild(el('h4', null, 'Public API'));
+    mod.publicAPI.forEach(a => {
+      sec.appendChild(el('div', null, el('code', { style: { fontSize: '11px' } }, a)));
+    });
+    inspector.appendChild(sec);
+  }
+
+  // Link to full detail
+  const linkSec = el('div', { style: { marginTop: '16px', paddingTop: '12px', borderTop: '1px solid #E2E8F0' } });
+  linkSec.appendChild(el('a', { href: `#node/${mod.id}`, style: { fontSize: '13px', fontWeight: '600' } }, 'Open full detail page \u2192'));
+  inspector.appendChild(linkSec);
+}
+
+// ── Step Inspector ──────────────────────────────────────
+function showStepInspector(inspector, step, pipeline) {
+  inspector.innerHTML = '';
+  inspector.classList.add('visible');
+
+  inspector.appendChild(el('h2', null, step.label));
+  if (step.subtitle) {
+    inspector.appendChild(el('p', { style: { fontSize: '12px', color: '#64748B', marginBottom: '12px' } }, step.subtitle));
+  }
+
+  // Executor type badge
+  const pal = EXEC_TYPE[step.exec] || EXEC_TYPE.deterministic;
+  const badge = el('span', {
+    style: { display: 'inline-block', fontSize: '11px', padding: '2px 10px', borderRadius: '6px',
+             background: pal.fill, color: pal.font, border: `1px solid ${pal.stroke}`, marginBottom: '12px' }
+  }, step.exec);
+  inspector.appendChild(badge);
+
+  // Module reference
+  if (step.module) {
+    const mod = MANIFEST.modules.find(m => m.id === step.module);
+    if (mod) {
+      const sec = el('div', { className: 'insp-section' });
+      sec.appendChild(el('h4', null, 'Module'));
+      sec.appendChild(el('a', { href: `#node/${mod.id}`, style: { fontSize: '13px' } }, mod.label));
+      inspector.appendChild(sec);
+    }
+  }
+
+  // Inputs
+  if (step.inputs && step.inputs.length) {
+    const sec = el('div', { className: 'insp-section' });
+    sec.appendChild(el('h4', null, 'Inputs'));
+    step.inputs.forEach(inp => {
+      sec.appendChild(el('div', { style: { fontSize: '12px', color: '#475569', padding: '2px 0' } },
+        el('code', null, inp)
+      ));
+    });
+    inspector.appendChild(sec);
+  }
+
+  // Outputs
+  if (step.outputs && step.outputs.length) {
+    const sec = el('div', { className: 'insp-section' });
+    sec.appendChild(el('h4', null, 'Outputs'));
+    step.outputs.forEach(out => {
+      sec.appendChild(el('div', { style: { fontSize: '12px', color: '#475569', padding: '2px 0' } },
+        el('code', null, out)
+      ));
+    });
+    inspector.appendChild(sec);
+  }
+
+  // Entry point
+  if (step.entryFile) {
+    const sec = el('div', { className: 'insp-section' });
+    sec.appendChild(el('h4', null, 'Entry Point'));
+    const block = el('div', { className: 'insp-entry' });
+    block.appendChild(el('div', null,
+      el('span', { className: 'label' }, 'File: '),
+      el('code', null, step.entryFile)
+    ));
+    if (step.entryFunction) block.appendChild(el('div', null,
+      el('span', { className: 'label' }, 'Function: '),
+      el('code', null, step.entryFunction + '()')
+    ));
+    sec.appendChild(block);
+    inspector.appendChild(sec);
+  }
+
+  // Module detail fallback
+  if (step.module) {
+    const mod = MANIFEST.modules.find(m => m.id === step.module);
+    if (mod && mod.detail) {
+      if (mod.detail.runCmd) {
+        const sec = el('div', { className: 'insp-section' });
+        sec.appendChild(el('h4', null, 'Run'));
+        sec.appendChild(el('div', { className: 'insp-cmd' }, mod.detail.runCmd));
+        inspector.appendChild(sec);
+      }
+      if (mod.detail.failureModes && mod.detail.failureModes.length) {
+        const sec = el('div', { className: 'insp-section' });
+        sec.appendChild(el('h4', null, 'Failure Modes'));
+        const tbl = el('table', { className: 'insp-table' });
+        const thead = el('tr');
+        thead.appendChild(el('th', null, 'Condition'));
+        thead.appendChild(el('th', null, 'Handling'));
+        tbl.appendChild(thead);
+        mod.detail.failureModes.forEach(fm => {
+          const tr = el('tr');
+          tr.appendChild(el('td', null, fm.condition));
+          tr.appendChild(el('td', null, fm.handling));
+          tbl.appendChild(tr);
+        });
+        sec.appendChild(tbl);
+        inspector.appendChild(sec);
+      }
+    }
+  }
+
+  // Link to module detail
+  if (step.module) {
+    const linkSec = el('div', { style: { marginTop: '16px', paddingTop: '12px', borderTop: '1px solid #E2E8F0' } });
+    linkSec.appendChild(el('a', { href: `#node/${step.module}`, style: { fontSize: '13px', fontWeight: '600' } }, 'Open module detail \u2192'));
+    inspector.appendChild(linkSec);
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  L2 — PIPELINE
+// ══════════════════════════════════════════════════════════
+function renderPipeline(canvas, inspector) {
+  const pipeline = MANIFEST.pipelines.find(p => p.id === currentParam);
+  if (!pipeline) {
+    canvas.appendChild(el('div', { style: { padding: '40px', color: '#64748B' } }, 'Pipeline not found.'));
+    return;
+  }
+
+  const container = el('div', { className: 'pipeline-container' });
+
+  // Header
+  const header = el('div', { className: 'pipeline-header' });
+  header.appendChild(el('h2', null, pipeline.label));
+  header.appendChild(el('p', null, pipeline.description));
+
+  const meta = el('div', { className: 'pipeline-meta' });
+  if (pipeline.trigger) meta.appendChild(el('span', { className: 'pipeline-meta-tag' }, 'Trigger: ' + pipeline.trigger));
+  if (pipeline.inputArtifacts) {
+    meta.appendChild(el('span', { className: 'pipeline-meta-tag' }, 'In: ' + pipeline.inputArtifacts.join(', ')));
+  }
+  if (pipeline.outputArtifacts) {
+    meta.appendChild(el('span', { className: 'pipeline-meta-tag' }, 'Out: ' + pipeline.outputArtifacts.join(', ')));
+  }
+  header.appendChild(meta);
+  container.appendChild(header);
+
+  const svgWrap = el('div', { className: 'pipeline-svg-wrap' });
+  container.appendChild(svgWrap);
+  canvas.appendChild(container);
+
+  inspector.classList.add('visible');
+
+  // Layout computation
+  const steps = pipeline.steps;
+  const edges = pipeline.edges;
+  const stepMap = {};
+  steps.forEach(s => stepMap[s.id] = s);
+
+  // Find back-edges (target appears before source in step order)
+  const stepOrder = {};
+  steps.forEach((s, i) => stepOrder[s.id] = i);
+
+  // Determine which edges are forward vs backward
+  const forwardEdges = [];
+  const backEdges = [];
+  edges.forEach(e => {
+    if (stepOrder[e.source] > stepOrder[e.target]) {
+      backEdges.push(e);
+    } else {
+      forwardEdges.push(e);
+    }
+  });
+
+  // Find decision nodes and their fail targets for offset
+  const decisionNodes = new Set();
+  const failTargets = new Set();
+  edges.forEach(e => {
+    const src = stepMap[e.source];
+    if (src && src.shape === 'decision') {
+      decisionNodes.add(e.source);
+      const label = (e.label || '').toLowerCase();
+      if (label.includes('fail') || label.includes('rework') || label.includes('refine') || label.includes('next iteration') || label.includes('updated')) {
+        failTargets.add(e.source + '->' + e.target);
+      }
+    }
+  });
+
+  const nodeW = 180, nodeH = 50;
+  const yGap = 100;
+  const padLeft = 100, padTop = 50;
+  const backEdgeOffset = 80;
+
+  // Position: simple top-to-bottom
+  const posMap = {};
+  steps.forEach((s, i) => {
+    posMap[s.id] = {
+      cx: padLeft + nodeW / 2 + backEdgeOffset,
+      cy: padTop + i * yGap + nodeH / 2
+    };
+  });
+
+  const svgW = padLeft + nodeW + backEdgeOffset * 2 + 160;
+  const svgH = padTop + steps.length * yGap + 60;
+
+  const svg = svgEl('svg', { width: svgW, height: svgH, viewBox: `0 0 ${svgW} ${svgH}` });
+  svg.appendChild(createDefs());
+
+  // Draw edges first
+  const edgeLayer = svgEl('g');
+
+  forwardEdges.forEach(e => {
+    const src = posMap[e.source];
+    const tgt = posMap[e.target];
+    if (!src || !tgt) return;
+
+    const label = (e.label || '').toLowerCase();
+    const srcStep = stepMap[e.source];
+    const isFail = (label.includes('fail') || label.includes('rework') || label.includes('refine')
+                   || label.includes('next iteration') || label.includes('updated'));
+
+    if (isFail && srcStep && srcStep.shape === 'decision') {
+      // Fail edge: goes right then down/up
+      const midX = src.cx + nodeW / 2 + 50;
+      drawEdge(edgeLayer, src.cx + nodeW/2, src.cy, tgt.cx + nodeW/2, tgt.cy,
+        { ...e, _curved: true, _mx: midX, _my: (src.cy + tgt.cy) / 2, _labelOffsetX: 40 },
+        true
+      );
+    } else {
+      drawEdge(edgeLayer, src.cx, src.cy + nodeH / 2, tgt.cx, tgt.cy - nodeH / 2, e, true);
+    }
+  });
+
+  backEdges.forEach(e => {
+    const src = posMap[e.source];
+    const tgt = posMap[e.target];
+    if (!src || !tgt) return;
+
+    const label = (e.label || '').toLowerCase();
+    const isFail = (label.includes('fail') || label.includes('rework') || label.includes('refine')
+                   || label.includes('next iteration') || label.includes('updated'));
+
+    // Back edge: route to the left of the diagram
+    const loopX = padLeft - 20;
+    const g = svgEl('g', { class: `edge-group edge-type-${e.type}` });
+
+    const style = isFail ? GATE_EDGES.fail : (EDGE_STYLES[e.type] || EDGE_STYLES.calls);
+    const markerName = isFail ? 'fail' : e.type;
+    const mType = (!isFail && style.marker === 'open') ? 'open-' : '';
+
+    const d = `M${src.cx - nodeW/2},${src.cy}
+               L${loopX},${src.cy}
+               L${loopX},${tgt.cy}
+               L${tgt.cx - nodeW/2},${tgt.cy}`;
+    const path = svgEl('path', {
+      d, fill: 'none',
+      stroke: style.color, 'stroke-width': style.width,
+      'stroke-dasharray': isFail ? GATE_EDGES.fail.dash : (style.dash || null),
+      'marker-end': `url(#arrow-${mType}${markerName})`
+    });
+    g.appendChild(path);
+
+    // Label
+    if (e.label) {
+      const lx = loopX;
+      const ly = (src.cy + tgt.cy) / 2;
+      const tw = e.label.length * 5.5 + 12;
+      g.appendChild(svgEl('rect', {
+        x: lx - tw/2, y: ly - 8, width: tw, height: 16,
+        rx: 4, ry: 4, fill: '#fff', stroke: '#E2E8F0', 'stroke-width': '0.5'
+      }));
+      g.appendChild(svgText(lx, ly, e.label, { 'font-size': '10', fill: '#475569' }));
+    }
+
+    edgeLayer.appendChild(g);
+  });
+
+  svg.appendChild(edgeLayer);
+
+  // Draw nodes
+  steps.forEach(step => {
+    const pos = posMap[step.id];
+    if (!pos) return;
+    const pal = EXEC_TYPE[step.exec] || EXEC_TYPE.deterministic;
+    const g = svgEl('g', { class: 'svg-node', 'data-id': step.id, filter: 'url(#drop-shadow)' });
+
+    // Shape
+    g.appendChild(drawStepShape(step, pos.cx, pos.cy, nodeW, nodeH, pal));
+
+    // Label text
+    const labelText = step.label.length > 22 ? step.label.slice(0, 20) + '...' : step.label;
+    g.appendChild(svgText(pos.cx, pos.cy - (step.subtitle ? 6 : 0), labelText, {
+      'font-size': '12', 'font-weight': 'bold', fill: pal.font
+    }));
+
+    // Subtitle
+    if (step.subtitle) {
+      g.appendChild(svgText(pos.cx, pos.cy + 10, step.subtitle, {
+        'font-size': '10', fill: '#94A3B8'
+      }));
+    }
+
+    g.addEventListener('click', () => {
+      selectedNode = step.id;
+      showStepInspector(inspector, step, pipeline);
+      svg.querySelectorAll('.svg-node').forEach(n => {
+        const shapes = n.querySelectorAll('rect, path');
+        shapes.forEach(s => {
+          const id = n.getAttribute('data-id');
+          // Thicken selected node
+          if (s.getAttribute('stroke-width')) {
+            s.setAttribute('stroke-width', id === step.id ? '3' : (step.shape === 'decision' ? '2' : '1.5'));
+          }
+        });
+      });
+    });
+
+    svg.appendChild(g);
+  });
+
+  svgWrap.appendChild(svg);
+}
+
+// ══════════════════════════════════════════════════════════
+//  L3 — NODE DETAIL
+// ══════════════════════════════════════════════════════════
+function renderNodeDetail(canvas) {
+  const mod = MANIFEST.modules.find(m => m.id === currentParam);
+  if (!mod) {
+    canvas.appendChild(el('div', { style: { padding: '40px', color: '#64748B' } }, 'Node not found.'));
+    return;
+  }
+
+  const detail = mod.detail || {};
+  const container = el('div', { className: 'node-detail-container' });
+
+  // Title
+  container.appendChild(el('h1', null, mod.label));
+
+  // Type badge
+  const pal = MOD_TYPE[mod.type] || MOD_TYPE.core;
+  container.appendChild(el('span', {
+    style: { display: 'inline-block', fontSize: '11px', padding: '3px 12px', borderRadius: '6px',
+             background: pal.fill, color: pal.font, border: `1px solid ${pal.stroke}`, marginBottom: '20px' }
+  }, mod.type));
+
+  // What
+  if (detail.what) {
+    container.appendChild(el('div', { className: 'nd-what' }, detail.what));
+  } else if (mod.purpose) {
+    container.appendChild(el('div', { className: 'nd-what' }, mod.purpose));
+  }
+
+  // Inputs table
+  if (detail.inputs && detail.inputs.length) {
+    const sec = el('div', { className: 'nd-section' });
+    sec.appendChild(el('h3', null, 'Inputs'));
+    const tbl = el('table', { className: 'nd-table' });
+    const thead = el('tr');
+    ['Name', 'Type', 'Description'].forEach(h => thead.appendChild(el('th', null, h)));
+    tbl.appendChild(thead);
+    detail.inputs.forEach(inp => {
+      const tr = el('tr');
+      tr.appendChild(el('td', null, el('code', null, inp.name)));
+      tr.appendChild(el('td', null, inp.type || '-'));
+      tr.appendChild(el('td', null, inp.description || ''));
+      tbl.appendChild(tr);
+    });
+    sec.appendChild(tbl);
+    container.appendChild(sec);
+  }
+
+  // Outputs table
+  if (detail.outputs && detail.outputs.length) {
+    const sec = el('div', { className: 'nd-section' });
+    sec.appendChild(el('h3', null, 'Outputs'));
+    const tbl = el('table', { className: 'nd-table' });
+    const thead = el('tr');
+    ['Name', 'Type', 'Description'].forEach(h => thead.appendChild(el('th', null, h)));
+    tbl.appendChild(thead);
+    detail.outputs.forEach(out => {
+      const tr = el('tr');
+      tr.appendChild(el('td', null, el('code', null, out.name)));
+      tr.appendChild(el('td', null, out.type || '-'));
+      tr.appendChild(el('td', null, out.description || ''));
+      tbl.appendChild(tr);
+    });
+    sec.appendChild(tbl);
+    container.appendChild(sec);
+  }
+
+  // Entry point
+  if (detail.entryFile) {
+    const sec = el('div', { className: 'nd-section' });
+    sec.appendChild(el('h3', null, 'Entry Point'));
+    const block = el('div', { className: 'nd-entry-block' });
+    block.appendChild(el('div', null,
+      el('span', { className: 'label' }, 'File: '),
+      el('span', { className: 'value' }, el('code', null, detail.entryFile))
+    ));
+    if (detail.entryFunction) block.appendChild(el('div', null,
+      el('span', { className: 'label' }, 'Function: '),
+      el('span', { className: 'value' }, el('code', null, detail.entryFunction + '()'))
+    ));
+    if (detail.entryLine) block.appendChild(el('div', null,
+      el('span', { className: 'label' }, 'Line: '),
+      el('span', { className: 'value' }, String(detail.entryLine))
+    ));
+    sec.appendChild(block);
+    container.appendChild(sec);
+  }
+
+  // Run command
+  if (detail.runCmd) {
+    const sec = el('div', { className: 'nd-section' });
+    sec.appendChild(el('h3', null, 'Run Command'));
+    sec.appendChild(el('div', { className: 'nd-cmd' }, detail.runCmd));
+    container.appendChild(sec);
+  }
+
+  // Configuration table
+  if (detail.configKeys && detail.configKeys.length) {
+    const sec = el('div', { className: 'nd-section' });
+    sec.appendChild(el('h3', null, 'Configuration'));
+    const tbl = el('table', { className: 'nd-table' });
+    const thead = el('tr');
+    ['Key', 'Default', 'Required', 'Description'].forEach(h => thead.appendChild(el('th', null, h)));
+    tbl.appendChild(thead);
+    detail.configKeys.forEach(ck => {
+      const tr = el('tr');
+      tr.appendChild(el('td', null, el('code', null, ck.key)));
+      tr.appendChild(el('td', null, ck.default || '-'));
+      tr.appendChild(el('td', null, ck.required ? 'Yes' : 'No'));
+      tr.appendChild(el('td', null, ck.description));
+      tbl.appendChild(tr);
+    });
+    sec.appendChild(tbl);
+    container.appendChild(sec);
+  }
+
+  // Failure Modes table
+  if (detail.failureModes && detail.failureModes.length) {
+    const sec = el('div', { className: 'nd-section' });
+    sec.appendChild(el('h3', null, 'Failure Modes'));
+    const tbl = el('table', { className: 'nd-table' });
+    const thead = el('tr');
+    ['Condition', 'Handling'].forEach(h => thead.appendChild(el('th', null, h)));
+    tbl.appendChild(thead);
+    detail.failureModes.forEach(fm => {
+      const tr = el('tr');
+      tr.appendChild(el('td', null, fm.condition));
+      tr.appendChild(el('td', null, fm.handling));
+      tbl.appendChild(tr);
+    });
+    sec.appendChild(tbl);
+    container.appendChild(sec);
+  }
+
+  // Files
+  if (mod.files && mod.files.length) {
+    const sec = el('div', { className: 'nd-section' });
+    sec.appendChild(el('h3', null, 'Files'));
+    mod.files.forEach(f => {
+      sec.appendChild(el('div', { style: { padding: '3px 0' } }, el('code', null, f)));
+    });
+    container.appendChild(sec);
+  }
+
+  // Public API
+  if (mod.publicAPI && mod.publicAPI.length) {
+    const sec = el('div', { className: 'nd-section' });
+    sec.appendChild(el('h3', null, 'Public API'));
+    mod.publicAPI.forEach(a => {
+      sec.appendChild(el('div', { style: { padding: '3px 0' } }, el('code', null, a)));
+    });
+    container.appendChild(sec);
+  }
+
+  // Related pipelines
+  const relatedPipelines = MANIFEST.pipelines.filter(p =>
+    p.steps.some(s => s.module === mod.id)
+  );
+  if (relatedPipelines.length) {
+    const sec = el('div', { className: 'nd-section' });
+    sec.appendChild(el('h3', null, 'Used In Pipelines'));
+    relatedPipelines.forEach(p => {
+      sec.appendChild(el('div', { style: { padding: '3px 0' } },
+        el('a', { href: `#pipeline/${p.id}` }, p.label)
+      ));
+    });
+    container.appendChild(sec);
+  }
+
+  // Related glossary terms
+  const relatedTerms = MANIFEST.glossary.filter(g =>
+    g.relatedNodes && g.relatedNodes.includes(mod.id)
+  );
+  if (relatedTerms.length) {
+    const sec = el('div', { className: 'nd-section' });
+    sec.appendChild(el('h3', null, 'Related Terms'));
+    relatedTerms.forEach(t => {
+      const termEl = el('div', { style: { padding: '4px 0' } });
+      termEl.appendChild(el('strong', { style: { fontSize: '13px' } }, t.term));
+      termEl.appendChild(el('span', { style: { fontSize: '12px', color: '#64748B', marginLeft: '8px' } }, t.definition));
+      sec.appendChild(termEl);
+    });
+    container.appendChild(sec);
+  }
+
+  canvas.appendChild(container);
+}
+
+// ══════════════════════════════════════════════════════════
+//  GLOSSARY
+// ══════════════════════════════════════════════════════════
+function renderGlossary(canvas) {
+  const container = el('div', { className: 'glossary-container' });
+  container.appendChild(el('h1', null, 'Glossary'));
+
+  const terms = [...MANIFEST.glossary].sort((a, b) => a.term.localeCompare(b.term));
+
+  // Group by first letter
+  const groups = {};
+  terms.forEach(t => {
+    const letter = t.term[0].toUpperCase();
+    if (!groups[letter]) groups[letter] = [];
+    groups[letter].push(t);
+  });
+
+  Object.keys(groups).sort().forEach(letter => {
+    container.appendChild(el('div', { className: 'glossary-letter' }, letter));
+    groups[letter].forEach(t => {
+      const item = el('div', { className: 'glossary-item' });
+      item.appendChild(el('div', { className: 'term' }, t.term));
+      item.appendChild(el('div', { className: 'def' }, t.definition));
+      if (t.relatedNodes && t.relatedNodes.length) {
+        const related = el('div', { className: 'related' });
+        related.appendChild(document.createTextNode('Related: '));
+        t.relatedNodes.forEach((nodeId, i) => {
+          const mod = MANIFEST.modules.find(m => m.id === nodeId);
+          if (i > 0) related.appendChild(document.createTextNode(', '));
+          related.appendChild(el('a', { href: `#node/${nodeId}` }, mod ? mod.label : nodeId));
+        });
+        item.appendChild(related);
+      }
+      container.appendChild(item);
+    });
+  });
+
+  canvas.appendChild(container);
+}
+
+// ══════════════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════════════
+async function init() {
+  try {
+    const resp = await fetch('manifest/repo-architecture.json');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    MANIFEST = await resp.json();
+  } catch (err) {
+    document.getElementById('canvas-panel').innerHTML =
+      `<div style="padding:40px;color:#DC2626;">
+        <h2>Failed to load manifest</h2>
+        <p>${err.message}</p>
+        <p style="color:#64748B;margin-top:8px;">Ensure <code>manifest/repo-architecture.json</code> exists and serve with <code>python3 -m http.server</code></p>
+      </div>`;
+    return;
+  }
+
+  window.addEventListener('hashchange', route);
+  route();
+}
+
+init();
+</script>
+</body>
+</html>
