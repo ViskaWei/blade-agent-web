@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Student Paper Pipeline — Interactive Architecture</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f8fafc;
+      color: #1e293b;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      background: #fff;
+      border-bottom: 1px solid #e2e8f0;
+      padding: 10px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    header .title-group h1 { font-size: 17px; font-weight: 600; color: #0f172a; }
+    header .title-group p { font-size: 11.5px; color: #64748b; margin-top: 1px; }
+    header .controls { display: flex; gap: 6px; }
+    header .controls button {
+      padding: 4px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      background: #fff;
+      cursor: pointer;
+      font-size: 11.5px;
+      transition: all 0.15s;
+      user-select: none;
+    }
+    header .controls button:hover { background: #f1f5f9; }
+    header .controls button.active { background: #7C3AED; color: #fff; border-color: #7C3AED; }
+
+    /* ── Main area ── */
+    .main {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+    }
+    .canvas-wrap {
+      flex: 1;
+      overflow: auto;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 12px 16px;
+    }
+    svg#flowchart { display: block; }
+
+    /* ── Floating Artifacts Panel ── */
+    .panel {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(255,255,255,0.95);
+      backdrop-filter: blur(8px);
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+      padding: 12px 14px;
+      font-size: 11.5px;
+      max-width: 190px;
+      z-index: 10;
+    }
+    .panel h3 {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #64748b;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    .panel .artifact-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 0;
+      color: #334155;
+      font-size: 11px;
+    }
+    .panel .artifact-dot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ── Legend Panel ── */
+    .legend-panel {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      background: rgba(255,255,255,0.95);
+      backdrop-filter: blur(8px);
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+      padding: 12px 14px;
+      font-size: 11px;
+      max-width: 280px;
+      z-index: 10;
+      display: none;
+    }
+    .legend-panel.show { display: block; }
+    .legend-panel h3 {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #64748b;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .legend-section { margin-bottom: 8px; }
+    .legend-section:last-child { margin-bottom: 0; }
+    .legend-section h4 {
+      font-size: 9.5px;
+      text-transform: uppercase;
+      color: #94a3b8;
+      margin-bottom: 3px;
+      font-weight: 600;
+    }
+    .legend-row { display: flex; align-items: center; gap: 7px; padding: 1.5px 0; }
+    .legend-swatch {
+      width: 22px; height: 14px;
+      border-radius: 3px;
+      border: 2px solid;
+      flex-shrink: 0;
+    }
+    .legend-swatch.oval { border-radius: 50%; width: 22px; height: 12px; }
+    .legend-swatch.diamond {
+      width: 14px; height: 14px;
+      transform: rotate(45deg);
+      border-radius: 2px;
+    }
+    .legend-swatch.parallelogram {
+      width: 22px; height: 14px;
+      transform: skewX(-12deg);
+      border-radius: 1px;
+    }
+    .legend-swatch.rounded { border-radius: 8px; }
+    .legend-swatch.page {
+      position: relative;
+      border-bottom-left-radius: 0;
+      border-bottom-right-radius: 0;
+      border-bottom-style: dashed;
+    }
+    .legend-edge-line {
+      width: 26px; height: 0;
+      border-top: 3px solid;
+      flex-shrink: 0;
+    }
+    .legend-edge-line.thin { border-top-width: 2px; }
+    .legend-edge-line.thinner { border-top-width: 1.5px; }
+    .legend-edge-line.dashed { border-top-style: dashed; }
+    .legend-edge-line.dotted { border-top-style: dotted; }
+
+    /* ── SVG interactive states ── */
+    .node-group { cursor: default; }
+    .node-group.expandable { cursor: pointer; }
+    .node-group.expandable:hover .node-bg { filter: brightness(0.96); }
+    .expand-badge { cursor: pointer; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="title-group">
+      <h1>Student Paper Pipeline &mdash; Interactive Architecture</h1>
+      <p>Click <span style="color:#7C3AED;font-weight:600;">&#9654;</span> on any pass to reveal gates, rework loops, and outputs</p>
+    </div>
+    <div class="controls">
+      <button onclick="expandAll()">Expand All</button>
+      <button onclick="collapseAll()">Collapse All</button>
+      <button onclick="toggleLegend()" id="btn-legend">Legend</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <div class="canvas-wrap" id="canvas-wrap"></div>
+
+    <!-- Key Artifacts -->
+    <div class="panel">
+      <h3>Key Artifacts</h3>
+      <div class="artifact-item"><div class="artifact-dot" style="background:#475569"></div>triage.json</div>
+      <div class="artifact-item"><div class="artifact-dot" style="background:#4F46E5"></div>map.md</div>
+      <div class="artifact-item"><div class="artifact-dot" style="background:#4F46E5"></div>glossary.md</div>
+      <div class="artifact-item"><div class="artifact-dot" style="background:#4F46E5"></div>claim_evidence.md</div>
+      <div class="artifact-item"><div class="artifact-dot" style="background:#4F46E5"></div>symbol_table.md</div>
+      <div class="artifact-item"><div class="artifact-dot" style="background:#4F46E5"></div>method_cards.md</div>
+      <div class="artifact-item"><div class="artifact-dot" style="background:#4F46E5"></div>teachback.md</div>
+      <div class="artifact-item"><div class="artifact-dot" style="background:#4F46E5"></div>START_HERE.md</div>
+    </div>
+
+    <!-- Legend — Standard Symbols -->
+    <div class="legend-panel" id="legend-panel">
+      <h3>Legend — Standard Symbols</h3>
+      <div class="legend-section">
+        <h4>Shapes (per heflo.com standard)</h4>
+        <div class="legend-row"><div class="legend-swatch parallelogram" style="background:#F1F5F9;border-color:#475569;"></div>Parallelogram = Data I/O</div>
+        <div class="legend-row"><div class="legend-swatch" style="background:#DBEAFE;border-color:#2563EB;"></div>Rectangle = Process</div>
+        <div class="legend-row"><div class="legend-swatch rounded" style="background:#D1FAE5;border-color:#059669;border-width:3px;"></div>Soft Rect = AI / LLM</div>
+        <div class="legend-row"><div class="legend-swatch diamond" style="background:#FEF3C7;border-color:#D97706;"></div>Diamond = Decision</div>
+        <div class="legend-row"><div class="legend-swatch page" style="background:#E0E7FF;border-color:#4F46E5;"></div>Page = Document</div>
+      </div>
+      <div class="legend-section">
+        <h4>Edges (6 standard types)</h4>
+        <div class="legend-row"><div class="legend-edge-line" style="border-color:#111827;"></div>Primary Flow (black 3px)</div>
+        <div class="legend-row"><div class="legend-edge-line thin" style="border-color:#16A34A;"></div>Gate Pass (green 2px)</div>
+        <div class="legend-row"><div class="legend-edge-line thin dashed" style="border-color:#DC2626;"></div>Gate Fail (red dashed 2px)</div>
+        <div class="legend-row"><div class="legend-edge-line thinner" style="border-color:#6B8DB2;"></div>Data Flow (gray-blue 1.5px)</div>
+        <div class="legend-row"><div class="legend-edge-line thinner dotted" style="border-color:#7C3AED;"></div>Feedback (purple dotted 1.5px)</div>
+      </div>
+      <div class="legend-section">
+        <h4>Accents</h4>
+        <div class="legend-row"><div class="legend-swatch rounded" style="background:#F5F3FF;border-color:#7C3AED;border-bottom-width:3px;"></div>Purple = Expandable</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function() {
+    'use strict';
+
+    // ================================================================
+    //  STANDARD COLOR PALETTE (from flowchart_symbols_standard.md)
+    // ================================================================
+    const PAL = {
+      // Node types — per standard
+      data:       { fill: '#F1F5F9', stroke: '#475569', font: '#1E293B' },     // ④ Data I/O — Slate
+      process:    { fill: '#DBEAFE', stroke: '#2563EB', font: '#1E3A8A' },     // ② Process — Blue
+      ai:         { fill: '#D1FAE5', stroke: '#059669', font: '#064E3B' },     // ⑲ AI/LLM — Emerald (ext)
+      decision:   { fill: '#FEF3C7', stroke: '#D97706', font: '#78350F' },     // ③ Decision — Amber
+      document:   { fill: '#E0E7FF', stroke: '#4F46E5', font: '#312E81' },     // ⑤ Document — Indigo
+      terminator: { fill: '#EDE9FE', stroke: '#7C3AED', font: '#4C1D95' },     // ① Terminator — Violet
+      // Accent
+      purple: '#7C3AED',
+    };
+
+    // Edge types — per standard
+    const EDGE = {
+      primary:  { color: '#111827', w: 3,   dash: '',    op: 0.85 },  // Primary Flow
+      pass:     { color: '#16A34A', w: 2,   dash: '',    op: 0.80 },  // Gate Pass
+      fail:     { color: '#DC2626', w: 2,   dash: '5,4', op: 0.70 },  // Gate Fail
+      dataflow: { color: '#6B8DB2', w: 1.5, dash: '',    op: 0.50 },  // Data Flow
+      feedback: { color: '#7C3AED', w: 1.5, dash: '2,3', op: 0.45 },  // Feedback
+    };
+
+    // Layout
+    const NW     = 240;   // spine node width
+    const NH     = 64;    // spine node height
+    const SPINE  = 120;   // spine left x
+    const YTOP   = 20;
+    const YGAP   = 42;    // gap between spine nodes
+
+    // Expansion sub-nodes
+    const DW     = 110;   // diamond width (decision)
+    const DH     = 80;    // diamond height
+    const EW     = 130;   // expansion rect width
+    const EH     = 44;    // expansion rect height
+    const EXGAP  = 32;    // horizontal gap in expansion
+    const EXPAD  = 40;    // gap from spine right to first expansion node
+    const REWORK_DROP = 52;
+
+    const NS = 'http://www.w3.org/2000/svg';
+    const FONT = '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif';
+
+    // ================================================================
+    //  NODE DATA — classified per standard
+    // ================================================================
+    // shape: 'data' | 'process' | 'ai' | 'document'
+    const nodes = [
+      { id: 'paper_pdf',  label: 'Paper PDF',        sub: 'arXiv URL / PDF file',                         shape: 'data',     expand: false },
+      { id: 'ingest',     label: 'Ingest',            sub: 'Fetch & Parse',           io: 'paper.pdf \u2192 text + sections',  shape: 'process',  expand: false },
+      { id: 'triage',     label: 'Profile & Route',   sub: 'Triage',                  io: 'text \u2192 triage.json',           shape: 'ai',       expand: false },
+      { id: 'map',        label: 'Map (Pass 1)',      sub: 'Structure Analysis',      io: 'sections \u2192 Structure Bundle',  shape: 'ai',       expand: true,
+        exp: { gate: 'Q1: Structure\nOK?', rework: 'Rework Map', out: 'Structure Bundle', outSub: 'map.md + glossary' } },
+      { id: 'analyze',    label: 'Analyze (Pass 2)',  sub: 'Reasoning & Evidence',    io: 'claims \u2192 Analysis Pack',       shape: 'ai',       expand: true,
+        exp: { gate: 'Q2: Reasoning\nconsistent?', rework: 'Rework Analyze', out: 'Analysis Pack', outSub: '5 docs' } },
+      { id: 'mastery',    label: 'Mastery (Pass 3)',  sub: 'Teach-back Synthesis',    io: 'analysis \u2192 Mastery Pack',      shape: 'ai',       expand: true,
+        exp: { gate: 'Q3: Can\nteach back?', rework: 'Rework Mastery', out: 'Mastery Pack', outSub: 'teachback + quiz' } },
+      { id: 'package',    label: 'Package Output',    sub: 'Final Assembly',          io: 'mastery \u2192 START_HERE.md',      shape: 'ai',       expand: true,
+        exp: { gate: 'Q4: Ready\nto publish?', rework: 'Rework Package', out: 'START_HERE.md', outSub: 'final output' } },
+      { id: 'start_here', label: 'START_HERE.md',     sub: '15-min learning product',                      shape: 'document', expand: false },
+    ];
+
+    // State
+    const open = {};
+    nodes.forEach(n => { if (n.expand) open[n.id] = false; });
+
+    // ================================================================
+    //  SVG PRIMITIVES
+    // ================================================================
+    function el(tag, a) {
+      const e = document.createElementNS(NS, tag);
+      if (a) for (const [k,v] of Object.entries(a)) e.setAttribute(k, v);
+      return e;
+    }
+
+    function txt(x, y, str, opt) {
+      opt = opt || {};
+      const t = el('text', {
+        x, y,
+        'text-anchor': opt.anchor || 'middle',
+        'dominant-baseline': 'central',
+        'font-size': opt.sz || 11,
+        'font-weight': opt.bold ? '600' : '400',
+        'font-family': FONT,
+        fill: opt.fill || '#1e293b',
+        'pointer-events': 'none',
+      });
+      if (typeof str === 'string' && str.includes('\n')) {
+        const lines = str.split('\n');
+        const lineH = (opt.sz || 11) * 1.3;
+        const startY = y - ((lines.length - 1) * lineH) / 2;
+        lines.forEach((line, i) => {
+          const ts = el('tspan', { x, dy: i === 0 ? (startY - y) : lineH });
+          ts.textContent = line;
+          t.appendChild(ts);
+        });
+      } else {
+        t.textContent = str;
+      }
+      return t;
+    }
+
+    // Arrow markers for each edge type
+    function addMarkers(defs) {
+      [
+        ['primary',  EDGE.primary.color],
+        ['pass',     EDGE.pass.color],
+        ['fail',     EDGE.fail.color],
+        ['dataflow', EDGE.dataflow.color],
+        ['feedback', EDGE.feedback.color],
+      ].forEach(([id, color]) => {
+        const m = el('marker', {
+          id: 'arr-' + id, viewBox: '0 0 10 10',
+          refX: 9, refY: 5,
+          markerWidth: 6, markerHeight: 6,
+          orient: 'auto-start-reverse',
+        });
+        m.appendChild(el('path', { d: 'M0,1.5 L10,5 L0,8.5Z', fill: color }));
+        defs.appendChild(m);
+      });
+    }
+
+    // Edge drawing
+    function edgeKey(style) {
+      if (style === EDGE.primary) return 'primary';
+      if (style === EDGE.pass) return 'pass';
+      if (style === EDGE.fail) return 'fail';
+      if (style === EDGE.feedback) return 'feedback';
+      return 'dataflow';
+    }
+
+    function drawEdge(parent, d, style, label, lx, ly) {
+      const g = el('g');
+      g.appendChild(el('path', {
+        d,
+        stroke: style.color,
+        'stroke-width': style.w,
+        fill: 'none',
+        'stroke-dasharray': style.dash || 'none',
+        opacity: style.op || 1,
+        'marker-end': 'url(#arr-' + edgeKey(style) + ')',
+      }));
+      if (label && lx != null) {
+        const lw = label.length * 5.5 + 10;
+        g.appendChild(el('rect', {
+          x: lx - lw / 2, y: ly - 8,
+          width: lw, height: 15,
+          rx: 3, fill: '#fff', opacity: 0.92,
+        }));
+        g.appendChild(txt(lx, ly, label, { sz: 9.5, bold: true, fill: style.color }));
+      }
+      parent.appendChild(g);
+      return g;
+    }
+
+    function edgeLine(parent, x1, y1, x2, y2, style, label) {
+      return drawEdge(parent, `M${x1},${y1}L${x2},${y2}`, style, label, (x1+x2)/2, (y1+y2)/2);
+    }
+
+    // ================================================================
+    //  STANDARD SHAPE DRAWING FUNCTIONS
+    // ================================================================
+
+    // ④ Data I/O — Parallelogram (Slate)
+    function drawParallelogram(parent, x, y, w, h, pal, lines, opts) {
+      const g = el('g', { class: 'node-group' + (opts.expandable ? ' expandable' : ''), 'data-id': opts.id || '' });
+      const skew = 16;
+      // Shadow
+      const sd = `M${x+skew+1},${y+2} L${x+w+1},${y+2} L${x+w-skew+1},${y+h+2} L${x+1},${y+h+2} Z`;
+      g.appendChild(el('path', { d: sd, fill: 'rgba(0,0,0,0.03)' }));
+      // Shape
+      const d = `M${x+skew},${y} L${x+w},${y} L${x+w-skew},${y+h} L${x},${y+h} Z`;
+      g.appendChild(el('path', { d, fill: pal.fill, stroke: pal.stroke, 'stroke-width': 2, class: 'node-bg' }));
+      addNodeText(g, x + w/2, y, w, h, lines, pal);
+      return finishNode(parent, g, opts, x, y, w, h);
+    }
+
+    // ② Process — Rectangle (Blue)
+    function drawProcess(parent, x, y, w, h, pal, lines, opts) {
+      const g = el('g', { class: 'node-group' + (opts.expandable ? ' expandable' : ''), 'data-id': opts.id || '' });
+      // Shadow
+      g.appendChild(el('rect', { x: x+1, y: y+2, width: w, height: h, rx: 8, fill: 'rgba(0,0,0,0.03)' }));
+      // Shape
+      g.appendChild(el('rect', { x, y, width: w, height: h, rx: 8, fill: pal.fill, stroke: pal.stroke, 'stroke-width': 2, class: 'node-bg' }));
+      addNodeText(g, x + w/2, y, w, h, lines, pal);
+      return finishNode(parent, g, opts, x, y, w, h);
+    }
+
+    // ⑲ AI / LLM — Soft rounded rectangle with thicker stroke (Emerald)
+    function drawAI(parent, x, y, w, h, pal, lines, opts) {
+      const g = el('g', { class: 'node-group' + (opts.expandable ? ' expandable' : ''), 'data-id': opts.id || '' });
+      // Shadow
+      g.appendChild(el('rect', { x: x+1, y: y+2, width: w, height: h, rx: 16, fill: 'rgba(0,0,0,0.03)' }));
+      // Shape — thicker stroke (3px) + large border-radius (16) distinguish from process
+      g.appendChild(el('rect', { x, y, width: w, height: h, rx: 16, fill: pal.fill, stroke: pal.stroke, 'stroke-width': 3, class: 'node-bg' }));
+      addNodeText(g, x + w/2, y, w, h, lines, pal);
+      return finishNode(parent, g, opts, x, y, w, h);
+    }
+
+    // ⑤ Document — Page shape with wavy bottom (Indigo)
+    function drawDocument(parent, x, y, w, h, pal, lines, opts) {
+      const g = el('g', { class: 'node-group' + (opts.expandable ? ' expandable' : ''), 'data-id': opts.id || '' });
+      const wave = 6;
+      // Shadow
+      const sd = `M${x+1},${y+2} L${x+w+1},${y+2} L${x+w+1},${y+h-wave+2} Q${x+w*0.75+1},${y+h+wave+2} ${x+w*0.5+1},${y+h-wave+2} Q${x+w*0.25+1},${y+h-wave*3+2} ${x+1},${y+h-wave+2} Z`;
+      g.appendChild(el('path', { d: sd, fill: 'rgba(0,0,0,0.03)' }));
+      // Shape
+      const d = `M${x},${y} L${x+w},${y} L${x+w},${y+h-wave} Q${x+w*0.75},${y+h+wave} ${x+w*0.5},${y+h-wave} Q${x+w*0.25},${y+h-wave*3} ${x},${y+h-wave} Z`;
+      g.appendChild(el('path', { d, fill: pal.fill, stroke: pal.stroke, 'stroke-width': 2, class: 'node-bg' }));
+      addNodeText(g, x + w/2, y, w, h - wave, lines, pal);
+      return finishNode(parent, g, opts, x, y, w, h);
+    }
+
+    // ③ Decision — Diamond (Amber) — used in expansion gates
+    function drawDiamond(parent, cx, cy, w, h, pal, label) {
+      const g = el('g');
+      const d = `M${cx},${cy-h/2} L${cx+w/2},${cy} L${cx},${cy+h/2} L${cx-w/2},${cy} Z`;
+      g.appendChild(el('path', { d, fill: pal.fill, stroke: pal.stroke, 'stroke-width': 2 }));
+      g.appendChild(txt(cx, cy, label, { sz: 9, bold: true, fill: pal.font }));
+      parent.appendChild(g);
+      return g;
+    }
+
+    // Small Document for expansion artifacts
+    function drawSmallDoc(parent, x, y, w, h, pal, label, sub) {
+      const g = el('g');
+      const wave = 4;
+      const d = `M${x},${y} L${x+w},${y} L${x+w},${y+h-wave} Q${x+w*0.75},${y+h+wave} ${x+w*0.5},${y+h-wave} Q${x+w*0.25},${y+h-wave*3} ${x},${y+h-wave} Z`;
+      g.appendChild(el('path', { d, fill: pal.fill, stroke: pal.stroke, 'stroke-width': 1.5 }));
+      if (sub) {
+        g.appendChild(txt(x + w/2, y + (h-wave)/2 - 5, label, { sz: 9.5, bold: true, fill: pal.font }));
+        g.appendChild(txt(x + w/2, y + (h-wave)/2 + 7, sub, { sz: 8.5, fill: '#6b7280' }));
+      } else {
+        g.appendChild(txt(x + w/2, y + (h-wave)/2, label, { sz: 9.5, bold: true, fill: pal.font }));
+      }
+      parent.appendChild(g);
+      return g;
+    }
+
+    // Small Process for expansion rework nodes (blue dashed border)
+    function drawRework(parent, x, y, w, h, label) {
+      const g = el('g');
+      g.appendChild(el('rect', {
+        x, y, width: w, height: h, rx: 6,
+        fill: PAL.process.fill, stroke: EDGE.fail.color, 'stroke-width': 1.5, 'stroke-dasharray': '5,3',
+      }));
+      g.appendChild(txt(x + w/2, y + h/2, label, { sz: 9.5, bold: true, fill: '#991b1b' }));
+      parent.appendChild(g);
+      return g;
+    }
+
+    // ── Helpers ──
+
+    function addNodeText(g, cx, y, w, h, lines, pal) {
+      const lineH = 13;
+      const totalH = lines.length * lineH;
+      const baseY = y + h/2 - totalH/2 + lineH/2;
+      lines.forEach((l, i) => {
+        g.appendChild(txt(cx, baseY + i * lineH, l.text, {
+          sz: l.sz || 11,
+          bold: l.bold,
+          fill: l.fill || pal.font,
+        }));
+      });
+    }
+
+    function finishNode(parent, g, opts, x, y, w, h) {
+      // Purple bottom accent on expandable
+      if (opts.expandable) {
+        g.appendChild(el('line', {
+          x1: x + 12, y1: y + h, x2: x + w - 12, y2: y + h,
+          stroke: PAL.purple, 'stroke-width': 2.5, 'stroke-linecap': 'round',
+        }));
+      }
+      // Expand badge
+      if (opts.expandable) {
+        const bx = x + w - 2;
+        const by = y + h / 2;
+        const badge = el('g', { class: 'expand-badge', 'data-target': opts.id });
+        badge.appendChild(el('circle', { cx: bx, cy: by, r: 11, fill: PAL.purple, opacity: 0.12 }));
+        badge.appendChild(txt(bx, by, open[opts.id] ? '\u25BE' : '\u25B8', { sz: 13, bold: true, fill: PAL.purple }));
+        g.appendChild(badge);
+      }
+      parent.appendChild(g);
+      return g;
+    }
+
+    // ================================================================
+    //  SPINE NODE DISPATCHER — draws the right shape per classification
+    // ================================================================
+    function drawSpineNode(parent, x, y, n) {
+      const pal = PAL[n.shape];
+      const lines = [];
+      lines.push({ text: n.label, sz: 12.5, bold: true });
+      if (n.sub) lines.push({ text: n.sub, sz: 10, fill: '#64748b' });
+      if (n.io)  lines.push({ text: n.io,  sz: 9,  fill: '#94a3b8' });
+
+      const opts = { expandable: n.expand, id: n.id };
+
+      switch (n.shape) {
+        case 'data':     return drawParallelogram(parent, x, y, NW, NH, pal, lines, opts);
+        case 'process':  return drawProcess(parent, x, y, NW, NH, pal, lines, opts);
+        case 'ai':       return drawAI(parent, x, y, NW, NH, pal, lines, opts);
+        case 'document': return drawDocument(parent, x, y, NW, NH, pal, lines, opts);
+        default:         return drawProcess(parent, x, y, NW, NH, pal, lines, opts);
+      }
+    }
+
+    // ================================================================
+    //  RENDER
+    // ================================================================
+    function render() {
+      const wrap = document.getElementById('canvas-wrap');
+      wrap.innerHTML = '';
+
+      // Compute spine Y positions (dynamic: add space when expanded)
+      const pos = {};
+      let y = YTOP;
+      nodes.forEach(n => {
+        pos[n.id] = { x: SPINE, y, cx: SPINE + NW/2, cy: y + NH/2 };
+        const extra = (n.expand && open[n.id]) ? (REWORK_DROP + EH + 8) : 0;
+        y += NH + YGAP + extra;
+      });
+      const spineH = y - YGAP + YTOP;
+
+      // SVG dimensions
+      const anyOpen = Object.values(open).some(v => v);
+      const expRight = SPINE + NW + EXPAD + DW/2 + EXGAP + EW + EXGAP + EW + 20;
+      const svgW = anyOpen ? Math.max(expRight + 20, 860) : SPINE + NW + 60;
+      const svgH = spineH + 10;
+
+      const svg = el('svg', {
+        id: 'flowchart',
+        width: '100%', height: '100%',
+        viewBox: `0 0 ${svgW} ${svgH}`,
+        preserveAspectRatio: 'xMidYMid meet',
+        xmlns: NS,
+      });
+
+      // Defs
+      const defs = el('defs');
+      addMarkers(defs);
+      svg.appendChild(defs);
+
+      const edgeLayer = el('g');
+      const expLayer  = el('g');
+      const nodeLayer = el('g');
+      svg.appendChild(edgeLayer);
+      svg.appendChild(expLayer);
+      svg.appendChild(nodeLayer);
+
+      // ── Spine edges — Primary Flow (black solid 3px) ──
+      for (let i = 0; i < nodes.length - 1; i++) {
+        const a = pos[nodes[i].id];
+        const b = pos[nodes[i+1].id];
+        edgeLine(edgeLayer, a.cx, a.y + NH, b.cx, b.y, EDGE.primary);
+      }
+
+      // ── Spine nodes + expansions ──
+      nodes.forEach((n, idx) => {
+        const p = pos[n.id];
+        drawSpineNode(nodeLayer, p.x, p.y, n);
+
+        if (n.expand && open[n.id]) {
+          const g = el('g');
+
+          // Layout:
+          //  [AI Node] ——dataflow——→ ◇ Decision ——pass——→ [Document]
+          //                              |
+          //                             fail
+          //                              ↓
+          //                         [Rework] ··feedback··→ [AI Node]
+
+          // Diamond center
+          const dcx = p.x + NW + EXPAD + DW/2;
+          const dcy = p.cy;
+
+          // Output document (right of diamond)
+          const outX = dcx + DW/2 + EXGAP;
+          const outY = dcy - EH/2;
+          const outW = EW;
+          const outH = EH;
+
+          // Rework process (below diamond)
+          const rwX = dcx - EW/2;
+          const rwY = dcy + DH/2 + REWORK_DROP - DH/2;
+          const rwW = EW;
+          const rwH = EH - 4;
+          const rwCx = rwX + rwW/2;
+          const rwCy = rwY + rwH/2;
+
+          // Edge: spine → diamond (Data Flow)
+          edgeLine(g, p.x + NW, p.cy, dcx - DW/2, dcy, EDGE.dataflow);
+
+          // Diamond (Decision — Amber)
+          drawDiamond(g, dcx, dcy, DW, DH, PAL.decision, n.exp.gate);
+
+          // PASS edge: diamond right → document (Gate Pass — green solid)
+          edgeLine(g, dcx + DW/2, dcy, outX, outY + outH/2, EDGE.pass, 'pass');
+
+          // Document artifact (Indigo)
+          drawSmallDoc(g, outX, outY, outW, outH, PAL.document, n.exp.out, n.exp.outSub);
+
+          // FAIL edge: diamond bottom → rework (Gate Fail — red dashed)
+          edgeLine(g, dcx, dcy + DH/2, rwCx, rwY, EDGE.fail, 'fail');
+
+          // Rework node (blue rect, dashed red border)
+          drawRework(g, rwX, rwY, rwW, rwH, n.exp.rework);
+
+          // Feedback loop: rework left → curve back to spine node (Feedback — purple dotted)
+          const loopEndX = p.cx + 30;
+          const loopEndY = p.y + NH;
+          const cpX = rwX - 16;
+          drawEdge(g,
+            `M${rwX},${rwCy} C${cpX},${rwCy} ${cpX},${loopEndY + 16} ${loopEndX},${loopEndY}`,
+            EDGE.feedback
+          );
+          // Label on loop
+          const llx = cpX - 4;
+          const lly = (rwCy + loopEndY) / 2 + 2;
+          g.appendChild(el('rect', { x: llx - 16, y: lly - 7, width: 32, height: 14, rx: 3, fill: '#fff', opacity: 0.9 }));
+          g.appendChild(txt(llx, lly, 'retry', { sz: 8, bold: true, fill: EDGE.feedback.color }));
+
+          expLayer.appendChild(g);
+        }
+      });
+
+      wrap.appendChild(svg);
+
+      // ── Click handlers ──
+      svg.querySelectorAll('.expand-badge').forEach(b => {
+        b.addEventListener('click', e => {
+          e.stopPropagation();
+          toggle(b.getAttribute('data-target'));
+        });
+      });
+      svg.querySelectorAll('.node-group.expandable').forEach(g => {
+        g.addEventListener('click', () => toggle(g.getAttribute('data-id')));
+      });
+    }
+
+    function toggle(id) {
+      open[id] = !open[id];
+      render();
+    }
+
+    // ================================================================
+    //  CONTROLS
+    // ================================================================
+    window.expandAll = function() {
+      nodes.forEach(n => { if (n.expand) open[n.id] = true; });
+      render();
+    };
+    window.collapseAll = function() {
+      nodes.forEach(n => { if (n.expand) open[n.id] = false; });
+      render();
+    };
+    window.toggleLegend = function() {
+      const p = document.getElementById('legend-panel');
+      p.classList.toggle('show');
+      document.getElementById('btn-legend').classList.toggle('active', p.classList.contains('show'));
+    };
+
+    // Initial render
+    render();
+  })();
+  </script>
+</body>
+</html>
